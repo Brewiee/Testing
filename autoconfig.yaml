@@ -2,30 +2,20 @@
 autoinstall:
   version: 1
   identity:
-    hostname: ubuntu-laptop
-    username: admin
-    password: VITOTEST
+    hostname: ubuntu-desktop
+    username: testing
+    password: testtest123
   keyboard:
     layout: be
     variant: nodeadkeys  # Belgian (Period) keyboard
   locale: en_US.UTF-8  # English as the main language
   timezone: Europe/Brussels  # Belgian timezone
-  localectl:
-    locale: en_US.UTF-8
-    vc-keymap: be
-    x11-keymap:
-      layout: be
-      model: pc105
-      variant: nodeadkeys  # For Belgian (Period)
   storage:
     layout:
       name: lvm
-  packages:
-    - openssh-server
-    - curl
   user-data:
     users:
-      - name: admin
+      - name: testing
         sudo: ALL=(ALL) NOPASSWD:ALL
   network:
     ethernets:
