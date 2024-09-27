@@ -4,7 +4,7 @@ autoinstall:
   identity:
     hostname: ubuntu-desktop
     username: testing
-    password: testtest123
+    password: $6$rounds=4096$randomsalt$randomhash  # Replace with the actual hashed password
   keyboard:
     layout: be
     variant: nodeadkeys  # Belgian (Period) keyboard
