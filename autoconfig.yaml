@@ -1,0 +1,34 @@
+#cloud-config
+autoinstall:
+  version: 1
+  identity:
+    hostname: ubuntu-laptop
+    username: admin
+    password: VITOTEST
+  keyboard:
+    layout: be
+    variant: nodeadkeys  # Belgian (Period) keyboard
+  locale: en_US.UTF-8  # English as the main language
+  timezone: Europe/Brussels  # Belgian timezone
+  localectl:
+    locale: en_US.UTF-8
+    vc-keymap: be
+    x11-keymap:
+      layout: be
+      model: pc105
+      variant: nodeadkeys  # For Belgian (Period)
+  storage:
+    layout:
+      name: lvm
+  packages:
+    - openssh-server
+    - curl
+  user-data:
+    users:
+      - name: admin
+        sudo: ALL=(ALL) NOPASSWD:ALL
+  network:
+    ethernets:
+      enp0s3:
+        dhcp4: true
+    version: 2
