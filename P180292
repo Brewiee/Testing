@@ -1,0 +1,23 @@
+autoinstall:
+  identity:
+    hostname: P180292
+    password: $6$rounds=4096$1354872853$7QKw5DoXiEhIC2EMVzyCu1mAR8K349qAZa2JkOMMkN07ely6/hTBEl8IL6iNU6rMXQqAafhzvWtS6nTIrgil91
+    username: testing
+  keyboard:
+    layout: us
+    variant: ''
+  locale: en_US.UTF-8
+  network:
+    ethernets:
+      enp0s3:
+        dhcp4: true
+    version: 2
+  storage:
+    layout:
+      name: lvm
+  timezone: Europe/Brussels
+  user-data:
+    users:
+    - name: testing
+      sudo: ALL=(ALL) NOPASSWD:ALL
+  version: 1
