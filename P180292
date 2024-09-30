@@ -1,11 +1,11 @@
 autoinstall:
   identity:
-    hostname: P180292
+    hostname: P180292.vito.local
     password: $6$rounds=4096$1354872853$7QKw5DoXiEhIC2EMVzyCu1mAR8K349qAZa2JkOMMkN07ely6/hTBEl8IL6iNU6rMXQqAafhzvWtS6nTIrgil91
     username: testing
   keyboard:
-    layout: us
-    variant: ''
+    layout: be
+    variant: nodeadkeys
   locale: en_US.UTF-8
   network:
     ethernets:
@@ -13,6 +13,25 @@ autoinstall:
         dhcp4: true
     version: 2
   storage:
+    config:
+      grub_device: true
+      id: 0
+      match:
+        size: largest
+      name: ''
+      partitions:
+      - flag: bios_grub
+        id: 0
+        size: 1MB
+        type: partition
+      - flag: lvm
+        id: 1
+        size: 100%
+        type: partition
+      preserve: false
+      ptable: gpt
+      type: disk
+      wipe: superblock-recursive
     layout:
       name: lvm
   timezone: Europe/Brussels
