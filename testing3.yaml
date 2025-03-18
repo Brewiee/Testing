@@ -1,0 +1,60 @@
+autoinstall:
+  identity:
+    hostname: DINSPOC.vito.local
+    password: $6$rounds=4096$1354872853$uJmX3HkZochEIdo8h2pR.lzCTExwRPgdDwECNNuIncPd2afvWjZcfdqmX9JN1lvuvAEzInesgQv7s7KnIa9/s/
+    username: testing
+  keyboard:
+    layout: be
+    variant: nodeadkeys
+  locale: en_US.UTF-8
+  network:
+    ethernets:
+      enp0s3:
+        dhcp4: true
+    version: 2
+  storage:
+    config:
+      grub_device: true
+      id: 0
+      match:
+        size: largest
+      name: ''
+      partitions:
+      - flag: bios_grub
+        id: 0
+        size: 1MB
+        type: partition
+      - flag: lvm
+        id: 1
+        size: 100%
+        type: partition
+      preserve: false
+      ptable: gpt
+      type: disk
+      wipe: superblock-recursive
+    layout:
+      name: lvm
+  timezone: Europe/Brussels
+  user-data:
+    packages:
+    - curl
+    - gnupg
+    - kubuntu-desktop
+    - teams
+    - remmina
+    - chromium-browser
+    - code
+    - pycharm-community
+    runcmd:
+    - systemctl set-default graphical.target
+    - curl -sSL https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
+    - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/20.04/prod
+      focal main" > /etc/apt/sources.list.d/microsoft-prod.list'
+    - apt-get update
+    - apt-get install -y intune-portal
+    - apt-get install -y mdatp
+    - mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
+    users:
+    - name: testing
+      sudo: ALL=(ALL) NOPASSWD:ALL
+  version: 1
