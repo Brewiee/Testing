@@ -1,6 +1,6 @@
 autoinstall:
   identity:
-    hostname: KubuntuTesting_adminjd.vito.local
+    hostname: adminjd_KubuntuPOC.vito.local
     password: $6$rounds=4096$1354872853$ZoYabOIfF/nsRpjf1.co4jLwZ8yvPZ2VQ00vHxN6pEujiHWnfxRj2Dxy4A5WePPejTEgtGSRDYkfD4HvCCLuC.
     username: testing
   keyboard:
@@ -11,7 +11,6 @@ autoinstall:
     ethernets:
       enp0s3:
         dhcp4: true
-    version: 2
   storage:
     config:
       grub_device: true
