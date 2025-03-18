@@ -47,6 +47,16 @@ autoinstall:
     - pycharm-community
     runcmd:
     - systemctl set-default graphical.target
+    - wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
+      > /etc/apt/trusted.gpg.d/packages.microsoft.gpg
+    - sh -c 'echo "deb [signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code
+      stable main" > /etc/apt/sources.list.d/vscode.list'
+    - sh -c 'echo "deb [signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/ms-teams
+      stable main" > /etc/apt/sources.list.d/teams.list'
+    - add-apt-repository ppa:mmk2410/intellij-idea -y
+    - apt-get update
+    - apt-get install -y curl gnupg kubuntu-desktop teams remmina chromium-browser
+      code pycharm-community
     - curl -sSL https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
     - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/20.04/prod
       focal main" > /etc/apt/sources.list.d/microsoft-prod.list'
