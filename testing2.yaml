@@ -1,6 +1,6 @@
 autoinstall:
   identity:
-    hostname: adminjd_KubuntuPOC.vito.local
+    hostname: KubuntuPOC_adminjd.vito.local
     password: $6$rounds=4096$1354872853$ZoYabOIfF/nsRpjf1.co4jLwZ8yvPZ2VQ00vHxN6pEujiHWnfxRj2Dxy4A5WePPejTEgtGSRDYkfD4HvCCLuC.
     username: testing
   keyboard:
