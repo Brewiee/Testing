@@ -37,13 +37,12 @@ autoinstall:
   timezone: Europe/Brussels
   user-data:
     packages:
-    - kubuntu-desktop
     - curl
     - gnupg
     runcmd:
     - systemctl set-default graphical.target
     - curl -sSL https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
-    - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/20.04/prod
+    - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/24.04/prod
       focal main" > /etc/apt/sources.list.d/microsoft-prod.list'
     - apt-get update
     - apt-get install -y intune-portal
