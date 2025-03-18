@@ -1,6 +1,6 @@
 autoinstall:
   identity:
-    hostname: KubuntuTesting_adminJD.vito.local
+    hostname: KubuntuTesting_adminjd.vito.local
     password: $6$rounds=4096$1354872853$ZoYabOIfF/nsRpjf1.co4jLwZ8yvPZ2VQ00vHxN6pEujiHWnfxRj2Dxy4A5WePPejTEgtGSRDYkfD4HvCCLuC.
     username: testing
   keyboard:
@@ -38,11 +38,17 @@ autoinstall:
   user-data:
     packages:
     - kubuntu-desktop
-    - windows-defender
-    - intune-portal
+    - curl
+    - gnupg
     runcmd:
     - systemctl set-default graphical.target
-    - windows-defender register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
+    - curl -sSL https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
+    - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/20.04/prod
+      focal main" > /etc/apt/sources.list.d/microsoft-prod.list'
+    - apt-get update
+    - apt-get install -y intune-portal
+    - apt-get install -y mdatp
+    - mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
     users:
     - name: testing
       sudo: ALL=(ALL) NOPASSWD:ALL
