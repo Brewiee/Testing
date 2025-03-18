@@ -39,7 +39,7 @@ autoinstall:
     packages:
     - kubuntu-desktop
     - windows-defender
-    - company-portal
+    - intune-portal
     runcmd:
     - systemctl set-default graphical.target
     - windows-defender register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
