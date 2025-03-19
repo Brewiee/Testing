@@ -1,7 +1,7 @@
 autoinstall:
   identity:
     hostname: DINSPOC.vito.local
-    password: $6$rounds=4096$1354872853$uJmX3HkZochEIdo8h2pR.lzCTExwRPgdDwECNNuIncPd2afvWjZcfdqmX9JN1lvuvAEzInesgQv7s7KnIa9/s/
+    password: $6$rounds=4096$1354872853$stuG38otg7iE9Kn0ixnzH6vP6hQ4IWAQmfJoweThZeYWZEVG/M4PeltiDpsRgqKy.JOO3uy2QsJnLZYzbDxLw0
     username: testing
   keyboard:
     layout: be
@@ -56,19 +56,22 @@ autoinstall:
     - curl -sSL https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
     - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/20.04/prod
       focal main" > /etc/apt/sources.list.d/microsoft-prod.list'
+    - add-apt-repository ppa:webkit-team/ppa -y
     - apt-get update
+    - apt-get install -y libjavascriptcoregtk-4.0-18
     - apt-get install -y intune-portal
     - apt-get install -y mdatp
     - mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
-    - mkdir -p /home/testing/Desktop/VITO
+    - mkdir -p /usr/share/applications/VITO
     - wget -qO- https://data.services.jetbrains.com/products/download?code=TBA&platform=linux
-      | tar -xz -C /opt
+      -O /tmp/jetbrains-toolbox.tar.gz
+    - tar -xz -C /opt -f /tmp/jetbrains-toolbox.tar.gz
     - mv /opt/jetbrains-toolbox-* /opt/jetbrains-toolbox
     - /opt/jetbrains-toolbox/jetbrains-toolbox
-    - mv /usr/share/applications/jetbrains-toolbox.desktop /home/testing/Desktop/VITO/
-    - mv /usr/share/applications/remmina.desktop /home/testing/Desktop/VITO/
-    - mv /usr/share/applications/chromium-browser.desktop /home/testing/Desktop/VITO/
-    - mv /usr/share/applications/code.desktop /home/testing/Desktop/VITO/
+    - mv /usr/share/applications/jetbrains-toolbox.desktop /usr/share/applications/VITO/
+    - mv /usr/share/applications/remmina.desktop /usr/share/applications/VITO/
+    - mv /usr/share/applications/chromium-browser.desktop /usr/share/applications/VITO/
+    - mv /usr/share/applications/code.desktop /usr/share/applications/VITO/
     users:
     - name: testing
       sudo: ALL=(ALL) NOPASSWD:ALL
