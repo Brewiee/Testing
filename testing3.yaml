@@ -60,9 +60,15 @@ autoinstall:
     - apt-get install -y intune-portal
     - apt-get install -y mdatp
     - mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
+    - mkdir -p /home/testing/Desktop/VITO
     - wget -qO- https://data.services.jetbrains.com/products/download?code=TBA&platform=linux
       | tar -xz -C /opt
+    - mv /opt/jetbrains-toolbox-* /opt/jetbrains-toolbox
     - /opt/jetbrains-toolbox/jetbrains-toolbox
+    - mv /usr/share/applications/jetbrains-toolbox.desktop /home/testing/Desktop/VITO/
+    - mv /usr/share/applications/remmina.desktop /home/testing/Desktop/VITO/
+    - mv /usr/share/applications/chromium-browser.desktop /home/testing/Desktop/VITO/
+    - mv /usr/share/applications/code.desktop /home/testing/Desktop/VITO/
     users:
     - name: testing
       sudo: ALL=(ALL) NOPASSWD:ALL
