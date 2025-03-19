@@ -39,7 +39,6 @@ autoinstall:
     packages:
     - curl
     - gnupg
-    - kubuntu-desktop
     - remmina
     - chromium-browser
     - code
@@ -53,7 +52,7 @@ autoinstall:
       https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
     - rm -f packages.microsoft.gpg
     - apt-get update
-    - apt-get install -y curl gnupg kubuntu-desktop remmina chromium-browser code
+    - apt-get install -y curl gnupg remmina chromium-browser code
     - curl -sSL https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
     - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/20.04/prod
       focal main" > /etc/apt/sources.list.d/microsoft-prod.list'
@@ -61,6 +60,9 @@ autoinstall:
     - apt-get install -y intune-portal
     - apt-get install -y mdatp
     - mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
+    - wget -qO- https://data.services.jetbrains.com/products/download?code=TBA&platform=linux
+      | tar -xz -C /opt
+    - /opt/jetbrains-toolbox/jetbrains-toolbox
     users:
     - name: testing
       sudo: ALL=(ALL) NOPASSWD:ALL
