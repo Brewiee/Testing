@@ -63,6 +63,19 @@ autoinstall:
     - apt-get install -y mdatp
     - mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
     - mkdir -p /usr/share/applications/VITO
+    - systemctl disable gnome-initial-setup.service
+    - systemctl mask gnome-initial-setup.service
+    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe
+      multiverse" >> /etc/apt/sources.list'
+    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted
+      universe multiverse" >> /etc/apt/sources.list'
+    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy-security main restricted
+      universe multiverse" >> /etc/apt/sources.list'
+    - apt-get update
+    - apt-get install -y libjavascriptcoregtk-4.0-18 libwebkit2gtk-4.0-37
+    - apt-get install -y intune-portal
+    - sed -i '/jammy/d' /etc/apt/sources.list
+    - apt-get update
     - wget -qO- https://data.services.jetbrains.com/products/download?code=TBA&platform=linux
       -O /tmp/jetbrains-toolbox.tar.gz
     - tar -xz -C /opt -f /tmp/jetbrains-toolbox.tar.gz
