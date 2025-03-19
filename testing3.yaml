@@ -1,7 +1,7 @@
 autoinstall:
   identity:
     hostname: DINSPOC.vito.local
-    password: $6$rounds=4096$1354872853$stuG38otg7iE9Kn0ixnzH6vP6hQ4IWAQmfJoweThZeYWZEVG/M4PeltiDpsRgqKy.JOO3uy2QsJnLZYzbDxLw0
+    password: $6$rounds=4096$1354872853$uJmX3HkZochEIdo8h2pR.lzCTExwRPgdDwECNNuIncPd2afvWjZcfdqmX9JN1lvuvAEzInesgQv7s7KnIa9/s/
     username: testing
   keyboard:
     layout: be
