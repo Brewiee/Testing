@@ -1,8 +1,9 @@
+#cloud-config
 autoinstall:
   version: 1
-  interactive-sections: []
   identity:
     hostname: P250253.vito.local
+    realname: PC Install
     username: pcinstall
     password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
   keyboard:
@@ -13,27 +14,8 @@ autoinstall:
   storage:
     layout:
       name: lvm
-      encrypted: true
-      password: gd05pXC56o6057O9It2v
-    config:
-      type: disk
-      id: 0
-      match:
-        size: largest
-      wipe: superblock-recursive
-      ptable: gpt
-      preserve: false
-      name: ''
-      grub_device: true
-      partitions:
-      - type: partition
-        id: 0
-        size: 1MB
-        flag: bios_grub
-      - type: partition
-        id: 1
-        size: 100%
-        flag: lvm
+      encrypt: true
+      password: REPLACE_WITH_SECURE_PASSPHRASE
   late-commands:
   - curtin in-target --target=/target -- bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS"
     -o device | head -n1); if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile
