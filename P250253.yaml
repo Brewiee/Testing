@@ -11,6 +11,11 @@ autoinstall:
     variant: nodeadkeys
   locale: en_US.UTF-8
   timezone: Europe/Brussels
+  packages:
+  - curl
+  - wget
+  - gnupg
+  - software-properties-common
   storage:
     layout:
       name: lvm
@@ -26,7 +31,7 @@ autoinstall:
   - curtin in-target --target=/target -- bash -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" > /etc/apt/sources.list.d/microsoft.list'
   - curtin in-target --target=/target -- apt-get update
   - curtin in-target --target=/target -- apt-get install -y mdatp
-  - 'curtin in-target --target=/target -- bash -c ''echo "# Register Defender with: mdatp --register --tenant-id YOUR_TENANT_ID" > /home/pcinstall/defender_setup.txt'''
+  - 'curtin in-target --target=/target -- bash -c ''echo "# Register Defender with: mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3" > /home/pcinstall/defender_setup.txt'''
   user-data:
     users:
     - name: pcinstall
