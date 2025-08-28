@@ -1,7 +1,9 @@
 #cloud-config
 autoinstall:
   version: 1
-  locale: en_US
+  source:
+    id: ubuntu-server-minimal
+  locale: en_US.UTF-8
   keyboard:
     layout: be
     variant: nodeadkeys
@@ -9,7 +11,7 @@ autoinstall:
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: $6$2sWYX8sqBZg16lN5$wzBwmHbctBNvZFfvH1xdnjUUtSv81ycBe4MeLJPOVm0ibXh2CRljRdFrtt5BZz/kmMEIjWXIMoLReL8aGqgnJ/
+    password: $6$u0BTlSiEFlBf7Wnj$IgePkzO9ie8lbLha3axG4aoE/FcA4Sa2tseT5ICJ7OQGFs9uOxDm7RJS5G1UMquz1NnffvQ5O0lu.i7TkY6cy1
   ssh:
     install-server: true
     authorized-keys: []
@@ -44,12 +46,10 @@ autoinstall:
         id: boot-partition
         device: disk0
         size: 1G
-        wipe: superblock
       - type: partition
         id: crypt-partition
         device: disk0
         size: -1
-        wipe: superblock
       - type: filesystem
         id: boot-fs
         device: boot-partition
@@ -69,22 +69,10 @@ autoinstall:
           - luks-device
         name: vg0
       - type: lvm_partition
-        id: lv-swap
-        volgroup: vg0
-        size: 2G
-        name: swap
-      - type: lvm_partition
         id: lv-root
         volgroup: vg0
         size: -1
         name: root
-      - type: filesystem
-        id: swap-fs
-        device: lv-swap
-        format: swap
-        mount:
-          point: none
-          options: ''
       - type: filesystem
         id: root-fs
         device: lv-root
@@ -92,6 +80,7 @@ autoinstall:
         mount:
           point: /
           options: ''
+  shutdown: reboot
   late-commands:
     - |
       curtin in-target --target=/target -- bash <<'SCRIPT'
