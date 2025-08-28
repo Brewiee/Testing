@@ -9,7 +9,7 @@ autoinstall:
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: $6$ekeRCUr2.iPkEIIJ$yBr/1in0Y8IqFzCL0yBiBIn7rUamxEsgPwyXIykD6jrAAi7MUU2Zo/diCWHQ0m8K3jZ3HFMJ4tVp0yQkx3ANb0
+    password: $6$3Yz3rnAHI/StOos7$WFvKVxSs5VKrUi/p4aNQlvQZRJsyKhxzPs0bn2QiomoTmbWVexGDhjb0vrcHe1wrd3pcJn/Gzoh/oWi6c8Cvv.
   updates: security
   ssh:
     install-server: true
@@ -72,15 +72,15 @@ autoinstall:
           - luks-device
         name: vg0
       - type: lvm_partition
-        id: lv-root
-        volgroup: vg0
-        size: -1
-        name: root
-      - type: lvm_partition
         id: lv-swap
         volgroup: vg0
         size: 2G
         name: swap
+      - type: lvm_partition
+        id: lv-root
+        volgroup: vg0
+        size: -1
+        name: root
       - type: filesystem
         id: swap-fs
         device: lv-swap
