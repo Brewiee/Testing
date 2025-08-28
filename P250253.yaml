@@ -15,7 +15,7 @@ autoinstall:
     layout:
       name: lvm
       encrypt: true
-      password: REPLACE_WITH_SECURE_PASSPHRASE
+      password: gd05pXC56o6057O9It2v
   late-commands:
   - curtin in-target --target=/target -- bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS"
     -o device | head -n1); if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile
@@ -27,7 +27,6 @@ autoinstall:
     users:
     - name: pcinstall
       sudo: ALL=(ALL) NOPASSWD:ALL
-    packages: []
     runcmd:
     - systemctl set-default graphical.target
     - apt-get update
