@@ -10,7 +10,7 @@ autoinstall:
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: $6$I7v1s/MnqlagGJOX$5m0VA1x7LHcQxmPEjgaMbbVaZdzAvOYSoQ5RHLqPOBRD/xcl9Zt36pp06VPqcVvLEUIIHyLgdjU6D6yCEe/xm/
+    password: $6$lwNmymF74gycf7uX$sBegJmiqg/ObVk.rgoF/WqmyXWu1U88lQ7lW0HNOCW1kVGxUicWMKX9SUdc29kyAukK6bPo.ejzHvmEqPH3Fn0
   updates: security
   ssh:
     install-server: true
@@ -19,8 +19,6 @@ autoinstall:
   apt:
     preserve_sources_list: false
   packages: []
-  user-data:
-    disable_root: true
   storage:
     config:
       - type: disk
@@ -79,6 +77,18 @@ autoinstall:
         volgroup: vg0
         size: -1
         name: root
+      - type: lvm_partition
+        id: lv-swap
+        volgroup: vg0
+        size: 2G
+        name: swap
+      - type: filesystem
+        id: swap-fs
+        device: lv-swap
+        format: swap
+        mount:
+          point: none
+          options: ''
       - type: filesystem
         id: root-fs
         device: lv-root
@@ -89,7 +99,7 @@ autoinstall:
   late-commands:
     - |
       curtin in-target --target=/target -- bash <<'SCRIPT'
-      set -e\napt-get update || true\napt-get install -y curl wget gnupg ca-certificates software-properties-common || true\nwget -O /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc || true\ngpg --dearmor /tmp/microsoft.asc 2>/dev/null && install -o root -g root -m 644 microsoft.asc.gpg /etc/apt/trusted.gpg.d/microsoft.gpg || true\necho 'deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft-prod.list || true\napt-get update || true\napt-get install -y mdatp || true\nmkdir -p /etc/opt/microsoft/mdatp\ncat > /etc/opt/microsoft/mdatp/mdatp_onboard.json <<'J'
+      apt-get update || true\napt-get install -y curl wget gnupg ca-certificates software-properties-common || true\nwget -O /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc || true\ngpg --dearmor /tmp/microsoft.asc 2>/dev/null && install -o root -g root -m 644 microsoft.asc.gpg /etc/apt/trusted.gpg.d/microsoft.gpg || true\necho 'deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft-prod.list || true\napt-get update || true\napt-get install -y mdatp || true\nmkdir -p /etc/opt/microsoft/mdatp\ncat > /etc/opt/microsoft/mdatp/mdatp_onboard.json <<'J'
       {"tenantId":"9e2777ed-8237-4ab9-9278-2c144d6f6da3","placeholder":true}
       J\necho 'Replace /etc/opt/microsoft/mdatp/mdatp_onboard.json with the real onboarding file, then run: mdatp onboarding install' > /etc/opt/microsoft/mdatp/POST-INSTALL-README || true\nmdatp health --help >/dev/null 2>&1 || true\necho 'NOTE: Replace placeholder key or integrate TPM-based unlocking.' > /etc/autoencryption-READTHIS
       SCRIPT
