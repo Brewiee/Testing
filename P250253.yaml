@@ -1,43 +1,50 @@
 autoinstall:
+  version: 1
   identity:
     hostname: P250253.vito.local
-    password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
     username: pcinstall
+    password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
   keyboard:
     layout: be
     variant: nodeadkeys
   locale: en_US.UTF-8
-  network:
-    ethernets:
-      enp0s3:
-        dhcp4: true
-    version: 2
+  timezone: Europe/Brussels
   storage:
+    layout:
+      name: lvm
+      encrypt: true
+      encrypted: true
+      password: tcA1nSdQa6634TBDYFrb
     config:
-      grub_device: true
+      type: disk
       id: 0
       match:
         size: largest
+      wipe: superblock-recursive
+      ptable: gpt
+      preserve: false
       name: ''
+      grub_device: true
       partitions:
-      - flag: bios_grub
+      - type: partition
         id: 0
         size: 1MB
-        type: partition
-      - flag: lvm
+        flag: bios_grub
+      - type: partition
         id: 1
         size: 100%
-        type: partition
-      preserve: false
-      ptable: gpt
-      type: disk
-      wipe: superblock-recursive
-    layout:
-      encrypt: true
-      name: lvm
-      password: tcA1nSdQa6634TBDYFrb
-  timezone: Europe/Brussels
+        flag: lvm
   user-data:
+    users:
+    - name: pcinstall
+      sudo: ALL=(ALL) NOPASSWD:ALL
+    late-commands:
+    - curtin in-target --target=/target -- bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS"
+      -o device | head -n1); if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile
+      bs=64 count=1; chmod 0400 /root/luks-keyfile; echo REPLACE_WITH_SECURE_PASSPHRASE
+      | cryptsetup luksAddKey "$luksdev" /root/luks-keyfile --batch-mode; sed -i "s#
+      none luks# /root/luks-keyfile luks#" /etc/crypttab; update-initramfs -u -k all;
+      fi'
     packages:
     - curl
     - gnupg
@@ -82,15 +89,9 @@ autoinstall:
       -cs)-prod.list'
     - apt-get update
     - apt-get install -y intune-portal
-    - bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS" -o device | head -n1);
-      if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile bs=64 count=1;
-      chmod 0400 /root/luks-keyfile; echo REPLACE_WITH_SECURE_PASSPHRASE | cryptsetup
-      luksAddKey "$luksdev" /root/luks-keyfile --batch-mode || true; fi'
-    - bash -c 'if grep -q crypto_LUKS /etc/crypttab; then sed -i "s# none luks# /root/luks-keyfile
-      luks#" /etc/crypttab; fi'
-    - update-initramfs -u -k all
     - reboot
-    users:
-    - name: pcinstall
-      sudo: ALL=(ALL) NOPASSWD:ALL
-  version: 1
+  network:
+    version: 2
+    ethernets:
+      enp0s3:
+        dhcp4: true
