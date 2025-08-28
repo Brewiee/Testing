@@ -11,6 +11,8 @@ autoinstall:
     variant: nodeadkeys
   locale: en_US.UTF-8
   timezone: Europe/Brussels
+  packages:
+  - ubuntu-cinnamon-desktop
   storage:
     layout:
       name: lvm
@@ -61,5 +63,3 @@ autoinstall:
     ethernets:
       enp0s3:
         dhcp4: true
-  packages:
-  - ubuntu-cinnamon-desktop
