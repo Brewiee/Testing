@@ -1,7 +1,6 @@
 #cloud-config
 autoinstall:
   version: 1
-  interactive-sections: []
   locale: en_US
   keyboard:
     layout: be
@@ -10,7 +9,7 @@ autoinstall:
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: $6$lwNmymF74gycf7uX$sBegJmiqg/ObVk.rgoF/WqmyXWu1U88lQ7lW0HNOCW1kVGxUicWMKX9SUdc29kyAukK6bPo.ejzHvmEqPH3Fn0
+    password: $6$ekeRCUr2.iPkEIIJ$yBr/1in0Y8IqFzCL0yBiBIn7rUamxEsgPwyXIykD6jrAAi7MUU2Zo/diCWHQ0m8K3jZ3HFMJ4tVp0yQkx3ANb0
   updates: security
   ssh:
     install-server: true
@@ -99,7 +98,18 @@ autoinstall:
   late-commands:
     - |
       curtin in-target --target=/target -- bash <<'SCRIPT'
-      apt-get update || true\napt-get install -y curl wget gnupg ca-certificates software-properties-common || true\nwget -O /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc || true\ngpg --dearmor /tmp/microsoft.asc 2>/dev/null && install -o root -g root -m 644 microsoft.asc.gpg /etc/apt/trusted.gpg.d/microsoft.gpg || true\necho 'deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft-prod.list || true\napt-get update || true\napt-get install -y mdatp || true\nmkdir -p /etc/opt/microsoft/mdatp\ncat > /etc/opt/microsoft/mdatp/mdatp_onboard.json <<'J'
+      apt-get update || true
+      apt-get install -y curl wget gnupg ca-certificates software-properties-common || true
+      wget -O /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc || true
+      gpg --dearmor /tmp/microsoft.asc 2>/dev/null && install -o root -g root -m 644 microsoft.asc.gpg /etc/apt/trusted.gpg.d/microsoft.gpg || true
+      echo 'deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft-prod.list || true
+      apt-get update || true
+      apt-get install -y mdatp || true
+      mkdir -p /etc/opt/microsoft/mdatp
+      cat > /etc/opt/microsoft/mdatp/mdatp_onboard.json <<'J'
       {"tenantId":"9e2777ed-8237-4ab9-9278-2c144d6f6da3","placeholder":true}
-      J\necho 'Replace /etc/opt/microsoft/mdatp/mdatp_onboard.json with the real onboarding file, then run: mdatp onboarding install' > /etc/opt/microsoft/mdatp/POST-INSTALL-README || true\nmdatp health --help >/dev/null 2>&1 || true\necho 'NOTE: Replace placeholder key or integrate TPM-based unlocking.' > /etc/autoencryption-READTHIS
+      J
+      echo 'Replace /etc/opt/microsoft/mdatp/mdatp_onboard.json with the real onboarding file, then run: mdatp onboarding install' > /etc/opt/microsoft/mdatp/POST-INSTALL-README || true
+      mdatp health --help >/dev/null 2>&1 || true
+      echo 'NOTE: Replace placeholder key or integrate TPM-based unlocking.' > /etc/autoencryption-READTHIS
       SCRIPT
