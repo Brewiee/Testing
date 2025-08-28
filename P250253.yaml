@@ -61,3 +61,5 @@ autoinstall:
     ethernets:
       enp0s3:
         dhcp4: true
+  packages:
+  - ubuntu-desktop-minimal
