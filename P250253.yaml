@@ -3,57 +3,53 @@ autoinstall:
   version: 1
   identity:
     hostname: p250253.vito.local
-    password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
     username: pcinstall
+    password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
   keyboard:
     layout: be
     variant: nodeadkeys
   locale: en_US.UTF-8
   timezone: Europe/Brussels
   storage:
-    config:
-    - grub_device: true
-      id: 0
-      match:
-        size: largest
-      name: ''
-      partitions:
-      - flag: bios_grub
-        id: 0
-        size: 1MB
-        type: partition
-      - flag: lvm
-        id: 1
-        size: 100%
-        type: partition
-      preserve: false
-      ptable: gpt
-      type: disk
-      wipe: superblock-recursive
     layout:
       name: lvm
       match:
         size: largest
-      encrypt: gd05pXC56o6057O9It2v
+      password: gd05pXC56o6057O9It2v
+      sizing-policy: all
   late-commands:
-  - curtin in-target --target=/target -- bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS" -o device | head -n1); if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile bs=64 count=1; chmod 0400 /root/luks-keyfile; echo 'gd05pXC56o6057O9It2v' | cryptsetup luksAddKey "$luksdev" /root/luks-keyfile --batch-mode; sed -i "s# none luks# /root/luks-keyfile luks#" /etc/crypttab; update-initramfs -u -k all; fi'
-  - curtin in-target --target=/target -- systemctl set-default graphical.target
-  - curtin in-target --target=/target -- apt-get update
-  - curtin in-target --target=/target -- apt-get install -y curl gnupg software-properties-common
-  - curtin in-target --target=/target -- bash -c 'curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg'
-  - curtin in-target --target=/target -- bash -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" > /etc/apt/sources.list.d/microsoft.list'
-  - curtin in-target --target=/target -- apt-get update
-  - curtin in-target --target=/target -- apt-get install -y mdatp
-  - 'curtin in-target --target=/target -- bash -c ''echo "# Register Defender with: mdatp --register --tenant-id YOUR_TENANT_ID" > /home/pcinstall/defender_setup.txt'''
-  user-data:
-    users:
-    - name: pcinstall
-      sudo: ALL=(ALL) NOPASSWD:ALL
+  - curtin in-target -- systemctl set-default graphical.target
+  - curtin in-target -- bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS" -o device | head -n1); if [ -n "$luksdev" ]; then mkdir -p /root; dd if=/dev/urandom of=/root/luks-keyfile bs=64 count=1; chmod 0400 /root/luks-keyfile; echo 'gd05pXC56o6057O9It2v' | cryptsetup luksAddKey "$luksdev" /root/luks-keyfile --batch-mode; sed -i "s# none luks# /root/luks-keyfile luks#" /etc/crypttab || true; update-initramfs -u -k all; fi'
+  - curtin in-target -- apt-get update
+  - curtin in-target -- apt-get install -y curl gnupg software-properties-common
+  - curtin in-target -- bash -c 'mkdir -p /etc/apt/keyrings'
+  - curtin in-target -- bash -c 'curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg'
+  - curtin in-target -- bash -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft.list'
+  - curtin in-target -- apt-get update || true
+  - curtin in-target -- apt-get install -y mdatp || true
+  - curtin in-target -- bash -c 'if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed > /root/mdatp_register_error.txt; fi'
+  - 'curtin in-target -- bash -c ''echo "# Microsoft Defender installed.
+
+    # Tenant: 9e2777ed-8237-4ab9-9278-2c144d6f6da3
+
+    # Re-run registration if needed:
+
+    mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3" > /home/pcinstall/defender_setup.txt'''
   network:
     version: 2
     ethernets:
       enp0s3:
         dhcp4: true
   source:
-    id: minimal
+    id: ubuntu-desktop-minimal
     search_drivers: false
+  packages:
+  - curl
+  - wget
+  - gnupg
+  - software-properties-common
+  user-data:
+    users:
+    - name: pcinstall
+      sudo: ALL=(ALL) NOPASSWD:ALL
+      shell: /bin/bash
