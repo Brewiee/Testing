@@ -17,12 +17,7 @@ autoinstall:
       encrypt: true
       password: gd05pXC56o6057O9It2v
   late-commands:
-  - curtin in-target --target=/target -- bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS"
-    -o device | head -n1); if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile
-    bs=64 count=1; chmod 0400 /root/luks-keyfile; echo REPLACE_WITH_SECURE_PASSPHRASE
-    | cryptsetup luksAddKey "$luksdev" /root/luks-keyfile --batch-mode; sed -i "s#
-    none luks# /root/luks-keyfile luks#" /etc/crypttab; update-initramfs -u -k all;
-    fi'
+  - curtin in-target --target=/target -- bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS" -o device | head -n1); if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile bs=64 count=1; chmod 0400 /root/luks-keyfile; echo 'gd05pXC56o6057O9It2v' | cryptsetup luksAddKey "$luksdev" /root/luks-keyfile --batch-mode; sed -i "s# none luks# /root/luks-keyfile luks#" /etc/crypttab; update-initramfs -u -k all; fi'
   user-data:
     users:
     - name: pcinstall
@@ -31,16 +26,13 @@ autoinstall:
     - systemctl set-default graphical.target
     - apt-get update
     - apt-get install -y wget gpg apt-transport-https
-    - wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
-      > /etc/apt/keyrings/packages.microsoft.gpg
-    - sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg]
-      https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
+    - wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/packages.microsoft.gpg
+    - sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
     - rm -f packages.microsoft.gpg
     - apt-get update
     - apt-get install -y curl gnupg
     - curl -sSL https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
-    - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/20.04/prod
-      focal main" > /etc/apt/sources.list.d/microsoft-prod.list'
+    - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/20.04/prod focal main" > /etc/apt/sources.list.d/microsoft-prod.list'
     - add-apt-repository ppa:webkit-team/ppa -y
     - apt-get update
     - apt-get install -y libjavascriptcoregtk-4.0-18
@@ -49,12 +41,9 @@ autoinstall:
     - mkdir -p /usr/share/applications/VITO
     - systemctl disable gnome-initial-setup.service
     - systemctl mask gnome-initial-setup.service
-    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe
-      multiverse" >> /etc/apt/sources.list'
-    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted
-      universe multiverse" >> /etc/apt/sources.list'
-    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy-security main restricted
-      universe multiverse" >> /etc/apt/sources.list'
+    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse" >> /etc/apt/sources.list'
+    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse" >> /etc/apt/sources.list'
+    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse" >> /etc/apt/sources.list'
     - apt-get update
     - apt-get install -y libjavascriptcoregtk-4.0-18 libwebkit2gtk-4.0-37
     - sed -i '/jammy/d' /etc/apt/sources.list
@@ -63,9 +52,7 @@ autoinstall:
     - curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
     - install -o root -g root -m 644 microsoft.gpg /usr/share/keyrings/
     - rm microsoft.gpg
-    - sh -c 'echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/$(lsb_release
-      -rs)/prod $(lsb_release -cs) main" >> /etc/apt/sources.list.d/microsoft-ubuntu-$(lsb_release
-      -cs)-prod.list'
+    - sh -c 'echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/$(lsb_release -rs)/prod $(lsb_release -cs) main" >> /etc/apt/sources.list.d/microsoft-ubuntu-$(lsb_release -cs)-prod.list'
     - apt-get update
     - apt-get install -y intune-portal
     - reboot
