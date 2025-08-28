@@ -1,6 +1,6 @@
 autoinstall:
   identity:
-    hostname: p250253.vito.local
+    hostname: P250253.vito.local.vito.local
     password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
     username: pcinstall
   keyboard:
@@ -33,7 +33,9 @@ autoinstall:
       type: disk
       wipe: superblock-recursive
     layout:
+      encrypt: true
       name: lvm
+      password: tcA1nSdQa6634TBDYFrb
   timezone: Europe/Brussels
   user-data:
     packages:
@@ -80,6 +82,13 @@ autoinstall:
       -cs)-prod.list'
     - apt-get update
     - apt-get install -y intune-portal
+    - bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS" -o device | head -n1);
+      if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile bs=64 count=1;
+      chmod 0400 /root/luks-keyfile; echo REPLACE_WITH_SECURE_PASSPHRASE | cryptsetup
+      luksAddKey "$luksdev" /root/luks-keyfile --batch-mode || true; fi'
+    - bash -c 'if grep -q crypto_LUKS /etc/crypttab; then sed -i "s# none luks# /root/luks-keyfile
+      luks#" /etc/crypttab; fi'
+    - update-initramfs -u -k all
     - reboot
     users:
     - name: pcinstall
