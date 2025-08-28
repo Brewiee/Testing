@@ -14,7 +14,7 @@ autoinstall:
       name: lvm
       encrypt: true
       encrypted: true
-      password: tcA1nSdQa6634TBDYFrb
+      password: gd05pXC56o6057O9It2v
     config:
       type: disk
       id: 0
@@ -34,20 +34,18 @@ autoinstall:
         id: 1
         size: 100%
         flag: lvm
+  late-commands:
+  - curtin in-target --target=/target -- bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS"
+    -o device | head -n1); if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile
+    bs=64 count=1; chmod 0400 /root/luks-keyfile; echo REPLACE_WITH_SECURE_PASSPHRASE
+    | cryptsetup luksAddKey "$luksdev" /root/luks-keyfile --batch-mode; sed -i "s#
+    none luks# /root/luks-keyfile luks#" /etc/crypttab; update-initramfs -u -k all;
+    fi'
   user-data:
     users:
     - name: pcinstall
       sudo: ALL=(ALL) NOPASSWD:ALL
-    late-commands:
-    - curtin in-target --target=/target -- bash -c 'set -e; luksdev=$(blkid -t TYPE="crypto_LUKS"
-      -o device | head -n1); if [ -n "$luksdev" ]; then dd if=/dev/urandom of=/root/luks-keyfile
-      bs=64 count=1; chmod 0400 /root/luks-keyfile; echo REPLACE_WITH_SECURE_PASSPHRASE
-      | cryptsetup luksAddKey "$luksdev" /root/luks-keyfile --batch-mode; sed -i "s#
-      none luks# /root/luks-keyfile luks#" /etc/crypttab; update-initramfs -u -k all;
-      fi'
-    packages:
-    - curl
-    - gnupg
+    packages: []
     runcmd:
     - systemctl set-default graphical.target
     - apt-get update
