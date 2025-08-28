@@ -1,6 +1,7 @@
 #cloud-config
 autoinstall:
   version: 1
+  interactive-sections: []
   locale: en_US
   keyboard:
     layout: be
@@ -9,7 +10,7 @@ autoinstall:
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: $6$k7TWlVyp8t/LHXff$b6kFVr8wXGrSMtmuQ5ns4B.VrlYlbxxGDOEV12wbMYLFDllE7VqYRdjaifRv0f.hjaRyOAf1XjP8DiN6cQHjk/
+    password: $6$LR.TRkQKfXgYqdjB$4IoLySNg6oAFu9B.Qc67I17bJ4PHYn85Mp8UU2su8owiuNGcuk/TNdGPDCYdhrsw3a06Jly2S.NhRgMwiw37x.
   updates: security
   ssh:
     install-server: true
@@ -31,6 +32,18 @@ autoinstall:
         preserve: false
         name: ''
         grub_device: true
+      - type: partition
+        id: efi-partition
+        device: disk0
+        size: 550M
+        flag: boot
+      - type: filesystem
+        id: efi-fs
+        device: efi-partition
+        format: fat32
+        mount:
+          point: /boot/efi
+          options: ''
       - type: partition
         id: boot-partition
         device: disk0
@@ -75,12 +88,12 @@ autoinstall:
           point: /
           options: ''
   late-commands:
-    - "curtin in-target --target=/target -- bash -c 'set -e; apt-get update; apt-get install -y curl wget gnupg ca-certificates software-properties-common'"
-    - "curtin in-target --target=/target -- bash -c 'wget -O /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc'"
-    - "curtin in-target --target=/target -- bash -c 'gpg --dearmor /tmp/microsoft.asc && install -o root -g root -m 644 microsoft.asc.gpg /etc/apt/trusted.gpg.d/microsoft.gpg'"
-    - "curtin in-target --target=/target -- bash -c 'echo \"deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main\" > /etc/apt/sources.list.d/microsoft-prod.list'"
-    - "curtin in-target --target=/target -- bash -c 'apt-get update && apt-get install -y mdatp'"
-    - "curtin in-target --target=/target -- bash -c 'mkdir -p /etc/opt/microsoft/mdatp && echo '{\"tenantId\":\"9e2777ed-8237-4ab9-9278-2c144d6f6da3\",\"placeholder\":true}' > /etc/opt/microsoft/mdatp/mdatp_onboard.json'"
+    - "curtin in-target --target=/target -- bash -c 'apt-get update || true; apt-get install -y curl wget gnupg ca-certificates software-properties-common || true'"
+    - "curtin in-target --target=/target -- bash -c 'wget -O /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc || true'"
+    - "curtin in-target --target=/target -- bash -c 'gpg --dearmor /tmp/microsoft.asc 2>/dev/null && install -o root -g root -m 644 microsoft.asc.gpg /etc/apt/trusted.gpg.d/microsoft.gpg || true'"
+    - "curtin in-target --target=/target -- bash -c 'echo \"deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main\" > /etc/apt/sources.list.d/microsoft-prod.list || true'"
+    - "curtin in-target --target=/target -- bash -c 'apt-get update || true; apt-get install -y mdatp || true'"
+    - "curtin in-target --target=/target -- bash -c 'mkdir -p /etc/opt/microsoft/mdatp && echo '{\"tenantId\":\"9e2777ed-8237-4ab9-9278-2c144d6f6da3\",\"placeholder\":true}' > /etc/opt/microsoft/mdatp/mdatp_onboard.json || true'"
     - "curtin in-target --target=/target -- bash -c 'mdatp health --help >/dev/null 2>&1 || true'"
-    - "curtin in-target --target=/target -- bash -c 'echo \"Replace /etc/opt/microsoft/mdatp/mdatp_onboard.json with the real onboarding file, then run: mdatp onboarding install\" > /etc/opt/microsoft/mdatp/POST-INSTALL-README'"
+    - "curtin in-target --target=/target -- bash -c 'echo \"Replace /etc/opt/microsoft/mdatp/mdatp_onboard.json with the real onboarding file, then run: mdatp onboarding install\" > /etc/opt/microsoft/mdatp/POST-INSTALL-README || true'"
     - "echo \"NOTE: Replace placeholder key or integrate TPM-based unlocking.\" > /target/etc/autoencryption-READTHIS"
