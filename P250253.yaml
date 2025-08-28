@@ -2,7 +2,7 @@
 autoinstall:
   version: 1
   identity:
-    hostname: P250253.vito.local
+    hostname: p250253.vito.local
     username: pcinstall
     password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
   keyboard:
@@ -18,14 +18,13 @@ autoinstall:
       password: gd05pXC56o6057O9It2v
       sizing-policy: all
   network:
-    network:
-      version: 2
-      ethernets:
-        all-en:
-          match:
-            name: en*
-          dhcp4: true
-          dhcp6: true
+    version: 2
+    ethernets:
+      all-en:
+        match:
+          name: en*
+        dhcp4: true
+        dhcp6: true
   source:
     id: ubuntu-desktop-minimal
     search_drivers: false
@@ -48,4 +47,5 @@ autoinstall:
     builtin:
       type: print
   error-commands:
+  - mkdir -p /target/var/tmp || true
   - tar -czf /target/var/tmp/installer-logs.tar.gz /var/log/installer || true
