@@ -1,0 +1,87 @@
+autoinstall:
+  identity:
+    hostname: p250253.vito.local
+    password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
+    username: pcinstall
+  keyboard:
+    layout: be
+    variant: nodeadkeys
+  locale: en_US.UTF-8
+  network:
+    ethernets:
+      enp0s3:
+        dhcp4: true
+    version: 2
+  storage:
+    config:
+      grub_device: true
+      id: 0
+      match:
+        size: largest
+      name: ''
+      partitions:
+      - flag: bios_grub
+        id: 0
+        size: 1MB
+        type: partition
+      - flag: lvm
+        id: 1
+        size: 100%
+        type: partition
+      preserve: false
+      ptable: gpt
+      type: disk
+      wipe: superblock-recursive
+    layout:
+      name: lvm
+  timezone: Europe/Brussels
+  user-data:
+    packages:
+    - curl
+    - gnupg
+    runcmd:
+    - systemctl set-default graphical.target
+    - apt-get update
+    - apt-get install -y wget gpg apt-transport-https
+    - wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
+      > /etc/apt/keyrings/packages.microsoft.gpg
+    - sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg]
+      https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
+    - rm -f packages.microsoft.gpg
+    - apt-get update
+    - apt-get install -y curl gnupg
+    - curl -sSL https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
+    - sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/20.04/prod
+      focal main" > /etc/apt/sources.list.d/microsoft-prod.list'
+    - add-apt-repository ppa:webkit-team/ppa -y
+    - apt-get update
+    - apt-get install -y libjavascriptcoregtk-4.0-18
+    - apt-get install -y mdatp
+    - mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
+    - mkdir -p /usr/share/applications/VITO
+    - systemctl disable gnome-initial-setup.service
+    - systemctl mask gnome-initial-setup.service
+    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe
+      multiverse" >> /etc/apt/sources.list'
+    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted
+      universe multiverse" >> /etc/apt/sources.list'
+    - sh -c 'echo "deb http://archive.ubuntu.com/ubuntu/ jammy-security main restricted
+      universe multiverse" >> /etc/apt/sources.list'
+    - apt-get update
+    - apt-get install -y libjavascriptcoregtk-4.0-18 libwebkit2gtk-4.0-37
+    - sed -i '/jammy/d' /etc/apt/sources.list
+    - apt-get update
+    - apt-get install -y curl gpg
+    - curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+    - install -o root -g root -m 644 microsoft.gpg /usr/share/keyrings/
+    - rm microsoft.gpg
+    - sh -c 'echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/$(lsb_release
+      -rs)/prod $(lsb_release -cs) main" >> /etc/apt/sources.list.d/microsoft-ubuntu-$(lsb_release
+      -cs)-prod.list'
+    - apt-get update
+    - apt-get install -y intune-portal
+    - reboot
+    users:
+    - name: pcinstall
+      sudo: ALL=(ALL) NOPASSWD:ALL
+  version: 1
