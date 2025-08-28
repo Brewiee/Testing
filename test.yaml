@@ -9,8 +9,7 @@ autoinstall:
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: $6$3Yz3rnAHI/StOos7$WFvKVxSs5VKrUi/p4aNQlvQZRJsyKhxzPs0bn2QiomoTmbWVexGDhjb0vrcHe1wrd3pcJn/Gzoh/oWi6c8Cvv.
-  updates: security
+    password: $6$IqDUaPt1IpSmYyc5$3/mDn3.gqCH.5TdwzwZNmLUWitR0DVxgO/FKuIF58aO8qIZeDKEJKOg7C0S3aqEeDgeUuZ/kety8XQZcHnIN7/
   ssh:
     install-server: true
     authorized-keys: []
@@ -29,6 +28,11 @@ autoinstall:
         preserve: false
         name: ''
         grub_device: true
+      - type: partition
+        id: bios-grub-partition
+        device: disk0
+        size: 1M
+        flag: bios_grub
       - type: partition
         id: efi-partition
         device: disk0
