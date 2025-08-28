@@ -10,7 +10,7 @@ autoinstall:
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: $6$LR.TRkQKfXgYqdjB$4IoLySNg6oAFu9B.Qc67I17bJ4PHYn85Mp8UU2su8owiuNGcuk/TNdGPDCYdhrsw3a06Jly2S.NhRgMwiw37x.
+    password: $6$AVFRSk18ndTITKGY$jZofahIGTaEkLBCbExzUk1Y5HZMWI54U4Cp6Y91oURAM8gbnYRV28KMNWCxgj9bIe/pmaZSstO0nJreAkHAgN1
   updates: security
   ssh:
     install-server: true
@@ -36,7 +36,7 @@ autoinstall:
         id: efi-partition
         device: disk0
         size: 550M
-        flag: boot
+        flags: [ boot, esp ]
       - type: filesystem
         id: efi-fs
         device: efi-partition
@@ -48,7 +48,6 @@ autoinstall:
         id: boot-partition
         device: disk0
         size: 1G
-        flag: boot
       - type: partition
         id: crypt-partition
         device: disk0
@@ -93,7 +92,9 @@ autoinstall:
     - "curtin in-target --target=/target -- bash -c 'gpg --dearmor /tmp/microsoft.asc 2>/dev/null && install -o root -g root -m 644 microsoft.asc.gpg /etc/apt/trusted.gpg.d/microsoft.gpg || true'"
     - "curtin in-target --target=/target -- bash -c 'echo \"deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main\" > /etc/apt/sources.list.d/microsoft-prod.list || true'"
     - "curtin in-target --target=/target -- bash -c 'apt-get update || true; apt-get install -y mdatp || true'"
-    - "curtin in-target --target=/target -- bash -c 'mkdir -p /etc/opt/microsoft/mdatp && echo '{\"tenantId\":\"9e2777ed-8237-4ab9-9278-2c144d6f6da3\",\"placeholder\":true}' > /etc/opt/microsoft/mdatp/mdatp_onboard.json || true'"
+    - "curtin in-target --target=/target -- bash -c 'mkdir -p /etc/opt/microsoft/mdatp && cat > /etc/opt/microsoft/mdatp/mdatp_onboard.json <<'EOF'
+{\"tenantId\":\"9e2777ed-8237-4ab9-9278-2c144d6f6da3\",\"placeholder\":true}
+EOF'"
     - "curtin in-target --target=/target -- bash -c 'mdatp health --help >/dev/null 2>&1 || true'"
     - "curtin in-target --target=/target -- bash -c 'echo \"Replace /etc/opt/microsoft/mdatp/mdatp_onboard.json with the real onboarding file, then run: mdatp onboarding install\" > /etc/opt/microsoft/mdatp/POST-INSTALL-README || true'"
     - "echo \"NOTE: Replace placeholder key or integrate TPM-based unlocking.\" > /target/etc/autoencryption-READTHIS"
