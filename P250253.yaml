@@ -1,6 +1,6 @@
 autoinstall:
   identity:
-    hostname: P250253.vito.local.vito.local
+    hostname: P250253.vito.local
     password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
     username: pcinstall
   keyboard:
