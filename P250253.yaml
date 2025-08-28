@@ -4,7 +4,7 @@ autoinstall:
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: '''$6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/'''
+    password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
   keyboard:
     layout: be
     variant: nodeadkeys
@@ -31,66 +31,15 @@ autoinstall:
   - gnupg
   - software-properties-common
   late-commands:
-  - - curtin
-    - in-target
-    - --
-    - systemctl
-    - set-default
-    - graphical.target
-  - - curtin
-    - in-target
-    - --
-    - bash
-    - -c
-    - set -e; apt-get update
-  - - curtin
-    - in-target
-    - --
-    - bash
-    - -c
-    - apt-get install -y curl gnupg software-properties-common || true
-  - - curtin
-    - in-target
-    - --
-    - bash
-    - -c
-    - mkdir -p /etc/apt/keyrings
-  - - curtin
-    - in-target
-    - --
-    - bash
-    - -c
-    - curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
-      > /etc/apt/keyrings/microsoft.gpg
-  - - curtin
-    - in-target
-    - --
-    - bash
-    - -c
-    - echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod
-      noble main' > /etc/apt/sources.list.d/microsoft.list
-  - - curtin
-    - in-target
-    - --
-    - bash
-    - -c
-    - apt-get update || true; if ! apt-cache policy mdatp 2>/dev/null | grep -q Candidate;
-      then echo fallback; echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg]
-      https://packages.microsoft.com/ubuntu/22.04/prod jammy main' > /etc/apt/sources.list.d/microsoft.list;
-      apt-get update || true; fi
-  - - curtin
-    - in-target
-    - --
-    - bash
-    - -c
-    - apt-get install -y mdatp || echo mdatp install failed > /root/mdatp_install_failed.txt
-  - - curtin
-    - in-target
-    - --
-    - bash
-    - -c
-    - if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3
-      || echo register failed > /root/mdatp_register_error.txt; fi
+  - curtin in-target -- systemctl set-default graphical.target
+  - curtin in-target -- bash -c "set -e; apt-get update"
+  - curtin in-target -- bash -c "apt-get install -y curl gnupg software-properties-common || true"
+  - curtin in-target -- bash -c "mkdir -p /etc/apt/keyrings"
+  - curtin in-target -- bash -c "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg"
+  - curtin in-target -- bash -c "echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft.list"
+  - curtin in-target -- bash -c "apt-get update || true; if ! apt-cache policy mdatp 2>/dev/null | grep -q Candidate; then echo fallback; echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" > /etc/apt/sources.list.d/microsoft.list; apt-get update || true; fi"
+  - curtin in-target -- bash -c "apt-get install -y mdatp || echo mdatp install failed > /root/mdatp_install_failed.txt"
+  - curtin in-target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed > /root/mdatp_register_error.txt; fi"
   reporting:
     builtin:
       type: print
