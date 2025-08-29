@@ -160,7 +160,7 @@ autoinstall:
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
 
   # ----- User Data / OEM Config ----------------------------------------------
-  timezone: UTC
+  timezone: Europe/Brussels
   # Permit passwordless sudo for initial bootstrap (tighten post-install)
   user-data:
     disable_root: true
