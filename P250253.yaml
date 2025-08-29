@@ -6,8 +6,8 @@
 
 autoinstall:
   version: 1
-  source:
-    id: ubuntu-desktop-minimal  # Ensure minimal desktop installation (fewer default apps)
+  interactive-sections: []  # Explicitly declare fully non-interactive
+  # source removed (desktop flavor ISO provides its own); re-add if needed with a valid id
   # ----- Locale / Keyboard ---------------------------------------------------
   locale: en_US.UTF-8
   keyboard:
