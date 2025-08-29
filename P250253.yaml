@@ -105,7 +105,7 @@ autoinstall:
         type: dm_crypt
         dm_name: luksroot
         volume: lvroot
-        key: CHANGE_ME_INSTALL_PASSPHRASE   # Plain passphrase for initial build; change post-install.
+        key: Testing   # Plain passphrase for initial build; change post-install.
 
       # Format encrypted root --------------------------------------------------
       - id: luks-root-fs
