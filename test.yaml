@@ -19,6 +19,8 @@ autoinstall:
         dhcp6: false
         set-name: eth0
   updates: security
+  source:
+    id: ubuntu-desktop-minimal  # Ensure minimal Desktop selection (vs ubuntu-desktop)
   apt:
     preserve_sources_list: false
     primary:
@@ -103,6 +105,7 @@ autoinstall:
     - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
   late-commands:
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
+    # Defender setup (optional – remove if not needed)
     - curtin in-target --target=/target apt-get update || true
     - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
     - curtin in-target --target=/target -- bash -c "mkdir -p /etc/apt/keyrings"
@@ -110,7 +113,28 @@ autoinstall:
     - curtin in-target --target=/target -- bash -c "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft.list"
     - curtin in-target --target=/target apt-get update || true
     - curtin in-target --target=/target -- bash -c "apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log"
-    - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi"
+    # Onboarding: place the organization-specific onboarding JSON (replace BASE64_STRING below)
+    # 1. Download onboarding package from Microsoft Defender portal (Settings > Endpoints > Onboarding > Linux)
+    # 2. Base64 encode mdatp_onboard.json WITHOUT line wraps, e.g. (Linux/macOS): base64 -w0 mdatp_onboard.json
+    #    (PowerShell): [Convert]::ToBase64String([IO.File]::ReadAllBytes('mdatp_onboard.json'))
+    # 3. Replace BASE64_STRING_HERE with the resulting single-line base64 text.
+    # NOTE: Keep this secret out of source control; consider using a CI transformation instead of committing.
+    - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1 && [ ! -f /etc/opt/microsoft/mdatp/mdatp_onboard.json ]; then \
+        ONB64='BASE64_STRING_HERE'; \
+        if [ \"$ONB64\" != 'BASE64_STRING_HERE' ]; then \
+          mkdir -p /etc/opt/microsoft/mdatp; \
+          echo $ONB64 | base64 -d > /etc/opt/microsoft/mdatp/mdatp_onboard.json 2>> /root/autoinstall.log || echo base64 decode failed >> /root/autoinstall.log; \
+          chmod 600 /etc/opt/microsoft/mdatp/mdatp_onboard.json; \
+        else \
+          echo 'Onboarding base64 placeholder not replaced; skipping onboarding file' >> /root/autoinstall.log; \
+        fi; \
+      fi"
+    # Restart service to pick up onboarding file (safe if not yet installed)
+    - curtin in-target --target=/target -- bash -c "systemctl restart mdatp 2>> /root/autoinstall.log || true"
+    # Log Defender health indicators (licensed & real-time protection status)
+    - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then echo 'mdatp healthy='$(mdatp health --field healthy 2>/dev/null) >> /root/autoinstall.log; fi"
+    - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then echo 'mdatp licensed='$(mdatp health --field licensed 2>/dev/null) >> /root/autoinstall.log; fi"
+    - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then echo 'mdatp rtp='$(mdatp health --field real_time_protection_enabled 2>/dev/null) >> /root/autoinstall.log; fi"
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
   timezone: Europe/Brussels
   user-data:
