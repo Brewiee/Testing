@@ -1,5 +1,5 @@
 #cloud-config
-# Ubuntu 24.04 Autoinstall template (ZFS data pool + LVM+LUKS root)                       
+# Ubuntu 24.04 Autoinstall template (Minimal Desktop + LVM + LUKS Root)                    
 # Generated: 2025-08-29
 # NOTE: Review every placeholder (SEARCH: CHANGE_ME) before use.
 # This file is an original template inspired by public guidance; not a verbatim copy.
@@ -42,16 +42,15 @@ autoinstall:
         uri: http://archive.ubuntu.com/ubuntu
 
   # ----- Storage Layout -------------------------------------------------------
-  # Disk model: [ESP][BOOT][LVM PV -> VG -> LV(root)->LUKS->ext4 /][ZFS pool remainder]
-  # Reinstall strategy: set preserve: true on structures you want to keep.
+  # Disk model: [ESP][BOOT][LVM PV -> VG -> LV(root)->LUKS->ext4 /]
+  # First install: leave preserve off to allow creation. Reinstall: add preserve:true where needed.
   storage:
     config:
       # Physical disk (match first SSD). Adjust matcher if multiple SSDs.
       - id: disk0
         type: disk
         ptable: gpt
-        preserve: true          # Validate only; do not wipe whole disk.
-        grub_device: false       # Set true only on ESP partition entry below.
+        grub_device: false
         name: disk0
         match:
           ssd: true
@@ -81,11 +80,11 @@ autoinstall:
         fstype: ext4
         volume: boot
 
-      # LVM PV partition (fixed size) -----------------------------------------
+      # LVM PV partition (use rest - will host LUKS root)
       - id: root-pv
         type: partition
         device: disk0
-        size: 150G                 # Increased to use more of disk for root/LUKS; adjust as desired
+        size: -1
         number: 3
         wipe: superblock
       - id: vgroot
@@ -93,12 +92,12 @@ autoinstall:
         name: vgroot
         devices: [root-pv]
 
-      # LVM logical volume for OS root (small to encourage data off root) -----
+      # LVM logical volume for OS root ---------------------------------------
       - id: lvroot
         type: lvm_partition
         name: lvroot
         volgroup: vgroot
-        size: 40G                  # Enlarged root logical volume
+        size: -1                   # Consume full VG (no separate /home dataset)
         wipe: superblock
 
       # LUKS on top of LV ------------------------------------------------------
@@ -115,29 +114,7 @@ autoinstall:
         volume: luks-root
         label: ROOTFS
 
-      # ZFS pool partition (rest of disk) -------------------------------------
-      - id: pool_part
-        type: partition
-        device: disk0
-        size: -1                   # Consume remaining disk space.
-        number: 4
-      - id: zpool-main
-        type: zpool
-        pool: pool                 # Pool name (adjust if desired).
-        vdevs: [pool_part]
-        mountpoint: /pool
-        pool_properties:
-          version: null            # Let ZFS choose new feature set.
-          ashift: 12
-          autotrim: "on"
-        fs_properties:
-          acltype: posixacl
-          xattr: sa
-          compression: lz4
-          normalization: formD
-          relatime: "on"
-
-      # Mount operations (order matters) --------------------------------------
+  # Mount operations (order matters) --------------------------------------
       - id: mount-root
         type: mount
         device: luks-root-fs
@@ -151,25 +128,7 @@ autoinstall:
         device: esp-format
         path: /boot/efi
 
-      # ZFS datasets (created after pool) -------------------------------------
-      - id: zfs-home
-        type: zfs
-        pool: pool
-        volume: home
-        properties:
-          mountpoint: /home
-      - id: zfs-containers
-        type: zfs
-        pool: pool
-        volume: containers
-        properties:
-          mountpoint: /var/lib/containers
-      - id: zfs-code
-        type: zfs
-        pool: pool
-        volume: code
-        properties:
-          mountpoint: /home/pcinstall/code
+  # (No separate /home LV; resides within encrypted root filesystem.)
 
   # ----- Users & SSH ----------------------------------------------------------
   ssh:
@@ -178,7 +137,6 @@ autoinstall:
 
   # ----- Packages -------------------------------------------------------------
   packages:
-    - zfsutils-linux
     - curl
 
   snaps: []
@@ -214,9 +172,6 @@ autoinstall:
 
 # ------------------- Post-Install Recommendations -----------------------------
 # 1. Change LUKS passphrase: cryptsetup luksChangeKey /dev/mapper/vgroot-lvroot
-# 2. (Optional) Recreate /home as an encrypted ZFS dataset via send/receive.
-# 3. Remove passwordless sudo: rm /etc/sudoers.d/90-cloud-init-users
-# 4. Rotate /etc/pool-key into secure secret management or use passphrase prompt.
-# 5. Snapshot baseline: zfs snapshot -r pool@baseline
-# 6. Add backups (e.g. zfs send | ssh backuphost).  
+# 2. Remove passwordless sudo: rm /etc/sudoers.d/90-cloud-init-users
+# 3. Run updates & verify Defender registration.
 # -----------------------------------------------------------------------------
