@@ -1,51 +1,224 @@
 #cloud-config
+# Ubuntu 24.04 Autoinstall template (ZFS data pool + LVM+LUKS root)                       
+# Generated: 2025-08-29
+# NOTE: Review every placeholder (SEARCH: CHANGE_ME) before use.
+# This file is an original template inspired by public guidance; not a verbatim copy.
+
 autoinstall:
   version: 1
+  source:
+    id: ubuntu-desktop-minimal  # Ensure minimal desktop installation (fewer default apps)
+  # ----- Locale / Keyboard ---------------------------------------------------
+  locale: en_US.UTF-8
+  keyboard:
+    layout: be
+    variant: nodeadkeys  # Belgian Period layout
+
+  # ----- Identity -------------------------------------------------------------
+  # Password MUST be a crypt(3) hash (e.g. mkpasswd --method=SHA-512). Do NOT store clear text.
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
-  keyboard:
-    layout: be
-    variant: nodeadkeys
-  locale: en_US.UTF-8
-  timezone: Europe/Brussels
-  storage:
-    layout:
-      name: lvm
-      match:
-        size: largest
-      password: gd05pXC56o6057O9It2v
-      sizing-policy: all
+    # Password for user pcinstall (hash of provided clear text). Rotate after deployment.
+    password: "$6$rounds=4096$9SgMJXq8AVq46PUs$.I/aiO8U.o9pfYOw7CrpoXCduJTWToE9usOASpK9aqUcNYMvEAQcZ1B5OamhbR2FEbQOdsrgVhnEneKwXczSp1"
+
+  # ----- Network --------------------------------------------------------------
+  # Basic DHCP on all interfaces. Customize for static if needed.
   network:
     version: 2
     ethernets:
-      all-en:
-        match:
-          name: en*
+      all:
+        match: {name: "*"}
         dhcp4: true
-        dhcp6: true
-  source:
-    id: ubuntu-desktop-minimal
-    search_drivers: false
+        dhcp6: false
+        set-name: eth0
+
+  # ----- Updates / Extras -----------------------------------------------------
+  updates: security
+  apt:
+    preserve_sources_list: false
+    primary:
+      - arches: [amd64]
+        uri: http://archive.ubuntu.com/ubuntu
+
+  # ----- Storage Layout -------------------------------------------------------
+  # Disk model: [ESP][BOOT][LVM PV -> VG -> LV(root)->LUKS->ext4 /][ZFS pool remainder]
+  # Reinstall strategy: set preserve: true on structures you want to keep.
+  storage:
+    config:
+      # Physical disk (match first SSD). Adjust matcher if multiple SSDs.
+      - id: disk0
+        type: disk
+        ptable: gpt
+        preserve: true          # Validate only; do not wipe whole disk.
+        grub_device: false       # Set true only on ESP partition entry below.
+        name: disk0
+        match:
+          ssd: true
+
+      # EFI System Partition ---------------------------------------------------
+      - id: esp
+        type: partition
+        device: disk0
+        size: 1G
+        flag: boot
+        number: 1
+        wipe: superblock         # Comment out + add preserve:true for reinstalls
+        grub_device: true
+      - id: esp-format
+        type: format
+        fstype: fat32
+        volume: esp
+
+      # /boot (unencrypted ext4) ----------------------------------------------
+      - id: boot
+        type: partition
+        device: disk0
+        size: 2G
+        number: 2
+      - id: boot-format
+        type: format
+        fstype: ext4
+        volume: boot
+
+      # LVM PV partition (fixed size) -----------------------------------------
+      - id: root-pv
+        type: partition
+        device: disk0
+        size: 150G                 # Increased to use more of disk for root/LUKS; adjust as desired
+        number: 3
+        wipe: superblock
+      - id: vgroot
+        type: lvm_volgroup
+        name: vgroot
+        devices: [root-pv]
+
+      # LVM logical volume for OS root (small to encourage data off root) -----
+      - id: lvroot
+        type: lvm_partition
+        name: lvroot
+        volgroup: vgroot
+        size: 40G                  # Enlarged root logical volume
+        wipe: superblock
+
+      # LUKS on top of LV ------------------------------------------------------
+      - id: luks-root
+        type: dm_crypt
+        dm_name: luksroot
+        volume: lvroot
+        key: CHANGE_ME_INSTALL_PASSPHRASE   # Plain passphrase for initial build; change post-install.
+
+      # Format encrypted root --------------------------------------------------
+      - id: luks-root-fs
+        type: format
+        fstype: ext4
+        volume: luks-root
+        label: ROOTFS
+
+      # ZFS pool partition (rest of disk) -------------------------------------
+      - id: pool_part
+        type: partition
+        device: disk0
+        size: -1                   # Consume remaining disk space.
+        number: 4
+      - id: zpool-main
+        type: zpool
+        pool: pool                 # Pool name (adjust if desired).
+        vdevs: [pool_part]
+        mountpoint: /pool
+        pool_properties:
+          version: null            # Let ZFS choose new feature set.
+          ashift: 12
+          autotrim: "on"
+        fs_properties:
+          acltype: posixacl
+          xattr: sa
+          compression: lz4
+          normalization: formD
+          relatime: "on"
+
+      # Mount operations (order matters) --------------------------------------
+      - id: mount-root
+        type: mount
+        device: luks-root-fs
+        path: /
+      - id: mount-boot
+        type: mount
+        device: boot-format
+        path: /boot
+      - id: mount-esp
+        type: mount
+        device: esp-format
+        path: /boot/efi
+
+      # ZFS datasets (created after pool) -------------------------------------
+      - id: zfs-home
+        type: zfs
+        pool: pool
+        volume: home
+        properties:
+          mountpoint: /home
+      - id: zfs-containers
+        type: zfs
+        pool: pool
+        volume: containers
+        properties:
+          mountpoint: /var/lib/containers
+      - id: zfs-code
+        type: zfs
+        pool: pool
+        volume: code
+        properties:
+          mountpoint: /home/pcinstall/code
+
+  # ----- Users & SSH ----------------------------------------------------------
+  ssh:
+    install-server: false
+    authorized-keys: []            # Add keys if enabling SSH during install.
+
+  # ----- Packages -------------------------------------------------------------
   packages:
-  - curl
-  - wget
-  - gnupg
-  - software-properties-common
+    - zfsutils-linux
+    - curl
+
+  snaps: []
+
+  # ----- Early Commands (run in installer env) -------------------------------
+  early-commands:
+    - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
+
+  # ----- Late Commands (run in target root via curtin in-target) -------------
+  # Useful for: encrypting datasets later, provisioning dotfiles, hardening.
   late-commands:
-  - curtin in-target -- systemctl set-default graphical.target
-  - curtin in-target -- bash -c "set -e; apt-get update"
-  - curtin in-target -- bash -c "apt-get install -y curl gnupg software-properties-common || true"
-  - curtin in-target -- bash -c "mkdir -p /etc/apt/keyrings"
-  - curtin in-target -- bash -c "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg"
-  - curtin in-target -- bash -c "echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft.list"
-  - curtin in-target -- bash -c "apt-get update || true; if ! apt-cache policy mdatp 2>/dev/null | grep -q Candidate; then echo fallback; echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" > /etc/apt/sources.list.d/microsoft.list; apt-get update || true; fi"
-  - curtin in-target -- bash -c "apt-get install -y mdatp || echo mdatp install failed > /root/mdatp_install_failed.txt"
-  - curtin in-target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed > /root/mdatp_register_error.txt; fi"
-  reporting:
-    builtin:
-      type: print
-  error-commands:
-  - mkdir -p /target/var/tmp || true
-  - tar -czf /target/var/tmp/installer-logs.tar.gz /var/log/installer || true
+    - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
+    - curtin in-target --target=/target -- bash -c "mkdir -p /etc/apt/keyrings"
+    - curtin in-target --target=/target -- bash -c "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg"
+    - curtin in-target --target=/target -- bash -c "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft.list"
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target -- bash -c "apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log"
+    - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi"
+    - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
+
+  # ----- User Data / OEM Config ----------------------------------------------
+  timezone: UTC
+  # Permit passwordless sudo for initial bootstrap (tighten post-install)
+  user-data:
+    disable_root: true
+    package_update: false
+    package_upgrade: false
+    runcmd:
+      - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
+
+  # ----- Reboot Policy -------------------------------------------------------
+  reboot: true
+
+# ------------------- Post-Install Recommendations -----------------------------
+# 1. Change LUKS passphrase: cryptsetup luksChangeKey /dev/mapper/vgroot-lvroot
+# 2. (Optional) Recreate /home as an encrypted ZFS dataset via send/receive.
+# 3. Remove passwordless sudo: rm /etc/sudoers.d/90-cloud-init-users
+# 4. Rotate /etc/pool-key into secure secret management or use passphrase prompt.
+# 5. Snapshot baseline: zfs snapshot -r pool@baseline
+# 6. Add backups (e.g. zfs send | ssh backuphost).  
+# -----------------------------------------------------------------------------
