@@ -1,7 +1,6 @@
 #cloud-config
 autoinstall:
-  version: 1
-  interactive-sections: []
+  version: 1  # interactive-sections removed for flavor compatibility
   locale: en_US.UTF-8
   keyboard:
     layout: be
@@ -29,7 +28,7 @@ autoinstall:
       - id: disk0
         type: disk
         ptable: gpt
-        preserve: true
+        preserve: false  # set false to allow full automated partitioning
         grub_device: false
         name: disk0
         match:
