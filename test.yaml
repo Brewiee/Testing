@@ -153,9 +153,13 @@ autoinstall:
           # Removals (adjust as desired)
           REMOVE_PACKAGES=(
             libreoffice* thunderbird transmission-* hexchat simple-scan rhythmbox shotwell
-            gnome-mahjongg gnome-mines gnome-sudoku aisleriot cheese celluloid drawing hypnotix pix warpinator
-            webapp-manager xreader xfburn brasero
+            cheese celluloid drawing hypnotix pix warpinator webapp-manager xreader xfburn brasero
+            # Games and puzzles (GNOME / Cinnamon extras)
+            gnome-mahjongg gnome-mines gnome-sudoku aisleriot gnome-chess quadrapassel five-or-more four-in-a-row \
+            hitori iagno lightsoff swell-foop tali gnome-tetravex gnome-robots gnome-nibbles gnome-klotski pegsolitaire
           )
+          echo "[prune] Listing currently installed candidate game packages (pre-purge):"
+          dpkg -l | awk '/^ii/ {print $2}' | grep -E '(^aisleriot$|^gnome-(mahjongg|mines|sudoku|chess|robots|nibbles|klotski|tetravex)$|^quadrapassel$|^five-or-more$|^four-in-a-row$|^hitori$|^iagno$|^lightsoff$|^swell-foop$|^tali$)' || echo "[prune] No GNOME game packages detected"
           echo "[prune] Purging: ${REMOVE_PACKAGES[*]}"
           apt-get update || true
           # Use bash globs expansion manually; ignore failures for patterns that don't match
@@ -165,6 +169,8 @@ autoinstall:
           done
           apt-get autoremove -y --purge || true
           apt-get clean || true
+          echo "[prune] Remaining GNOME game packages after purge (should be empty or minimal):"
+          dpkg -l | awk '/^ii/ {print $2}' | grep -E '(^aisleriot$|^gnome-(mahjongg|mines|sudoku|chess|robots|nibbles|klotski|tetravex)$|^quadrapassel$|^five-or-more$|^four-in-a-row$|^hitori$|^iagno$|^lightsoff$|^swell-foop$|^tali$)' || echo "[prune] None remaining"
           echo "[prune] Disk usage after pruning:"; df -h / | sed 's/^/[prune] /'
           echo "[prune] Completed"
     runcmd:
