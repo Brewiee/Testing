@@ -211,8 +211,6 @@ autoinstall:
     runcmd:
       - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
 
-  # ----- End-of-install action ----------------------------------------------
-  shutdown: reboot   # Valid values: reboot | poweroff
 
 # ------------------- Post-Install Recommendations -----------------------------
 # 1. Change LUKS passphrase: cryptsetup luksChangeKey /dev/mapper/vgroot-lvroot
