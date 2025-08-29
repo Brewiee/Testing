@@ -75,7 +75,7 @@ autoinstall:
         type: dm_crypt
         dm_name: luksroot
         volume: lvroot
-        key: gd05pXC56o6057O9It2v
+        key: Testing
       - id: luks-root-fs
         type: format
         fstype: ext4
@@ -139,6 +139,36 @@ autoinstall:
             mdatp health 2>&1 | sed 's/^/[mdatp] /' || true
           fi
           echo "[mdatp] Completed";
+      - path: /usr/local/sbin/prune_desktop.sh
+        permissions: '0750'
+        owner: root:root
+        content: |
+          #!/bin/bash
+          # Remove non-essential desktop applications to achieve a lean install.
+          set -euo pipefail
+          exec > /var/log/prune_desktop.log 2>&1
+          echo "[prune] Starting desktop package pruning"
+          APT_FLAGS="-y --allow-remove-essential --allow-change-held-packages"
+          # Core keep set (avoid removing): cinnamon-core cinnamon-session network-manager xorg firefox
+          # Removals (adjust as desired)
+          REMOVE_PACKAGES=(
+            libreoffice* thunderbird transmission-* hexchat simple-scan rhythmbox shotwell
+            gnome-mahjongg gnome-mines gnome-sudoku aisleriot cheese celluloid drawing hypnotix pix warpinator
+            webapp-manager xreader xfburn brasero
+          )
+          echo "[prune] Purging: ${REMOVE_PACKAGES[*]}"
+          apt-get update || true
+          # Use bash globs expansion manually; ignore failures for patterns that don't match
+          for pat in "${REMOVE_PACKAGES[@]}"; do
+            echo "[prune] Attempt purge $pat"
+            apt-get purge $APT_FLAGS $pat 2>/dev/null || true
+          done
+          apt-get autoremove -y --purge || true
+          apt-get clean || true
+          echo "[prune] Disk usage after pruning:"; df -h / | sed 's/^/[prune] /'
+          echo "[prune] Completed"
     runcmd:
       - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
+      - [ bash, -c, "/usr/local/sbin/prune_desktop.sh || true" ]
       - [ bash, -c, "/usr/local/sbin/install_mdatp.sh || true" ]
+      - [ bash, -c, "apt-get update && apt-get install -y intune-portal || echo 'intune portal install failed' >> /var/log/install_mdatp.log" ]
