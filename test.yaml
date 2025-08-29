@@ -19,8 +19,6 @@ autoinstall:
         dhcp6: false
         set-name: eth0
   updates: security
-  source:
-    id: ubuntu-desktop-minimal  # Ensure minimal Desktop selection (vs ubuntu-desktop)
   apt:
     preserve_sources_list: false
     primary:
