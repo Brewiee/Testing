@@ -1,43 +1,121 @@
 #cloud-config
 autoinstall:
   version: 1
-  source:
-    id: ubuntu-server-minimal
+  interactive-sections: []
   locale: en_US.UTF-8
   keyboard:
     layout: be
     variant: nodeadkeys
-  timezone: Europe/Brussels
   identity:
     hostname: p250253.vito.local
     username: pcinstall
-    password: $6$9ap8q.KehlebYVJq$EIw5YFvSZON4GM7SdgNTHCpNa2EqTq7j5vbZakZEihqGfPsJTznAzwzB0ySLv/ahAahALZjybtodX0Hbozg641
-  ssh:
-    install-server: true
-    authorized-keys: []
-    allow-pw: true
+    password: "$6$rounds=4096$SWCBZgqTOcPSgJEw$pz7Xlpv2Ry3M3J30JMypu/nR9ue4SfWax8.hnK0SAhJQ9bG8R0gp5Qh9UdUBlJo8/R9USSQTig98ahCCGSwb.1"
+  network:
+    version: 2
+    ethernets:
+      all:
+        match: {name: '*'}
+        dhcp4: true
+        dhcp6: false
+        set-name: eth0
+  updates: security
   apt:
     preserve_sources_list: false
-  packages: []
+    primary:
+      - arches: [amd64]
+        uri: http://archive.ubuntu.com/ubuntu
   storage:
-    layout:
-      name: lvm
-      policy: all
-  shutdown: reboot
+    config:
+      - id: disk0
+        type: disk
+        ptable: gpt
+        preserve: true
+        grub_device: false
+        name: disk0
+        match:
+          ssd: true
+      - id: esp
+        type: partition
+        device: disk0
+        size: 1G
+        flag: boot
+        number: 1
+        wipe: superblock
+        grub_device: true
+      - id: esp-format
+        type: format
+        fstype: fat32
+        volume: esp
+      - id: boot
+        type: partition
+        device: disk0
+        size: 2G
+        number: 2
+      - id: boot-format
+        type: format
+        fstype: ext4
+        volume: boot
+      - id: root-pv
+        type: partition
+        device: disk0
+        size: -1
+        number: 3
+        wipe: superblock
+      - id: vgroot
+        type: lvm_volgroup
+        name: vgroot
+        devices: [root-pv]
+      - id: lvroot
+        type: lvm_partition
+        name: lvroot
+        volgroup: vgroot
+        size: -1
+        wipe: superblock
+      - id: luks-root
+        type: dm_crypt
+        dm_name: luksroot
+        volume: lvroot
+        key: gd05pXC56o6057O9It2v
+      - id: luks-root-fs
+        type: format
+        fstype: ext4
+        volume: luks-root
+        label: ROOTFS
+      - id: mount-root
+        type: mount
+        device: luks-root-fs
+        path: /
+      - id: mount-boot
+        type: mount
+        device: boot-format
+        path: /boot
+      - id: mount-esp
+        type: mount
+        device: esp-format
+        path: /boot/efi
+  ssh:
+    install-server: false
+    authorized-keys: []
+  packages:
+    - curl
+  snaps: []
+  early-commands:
+    - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
   late-commands:
-    - |
-      curtin in-target --target=/target -- bash <<'SCRIPT'
-      apt-get update || true
-      apt-get install -y curl wget gnupg ca-certificates software-properties-common || true
-      wget -O /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc || true
-      gpg --dearmor /tmp/microsoft.asc 2>/dev/null && install -o root -g root -m 644 microsoft.asc.gpg /etc/apt/trusted.gpg.d/microsoft.gpg || true
-      echo 'deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft-prod.list || true
-      apt-get update || true
-      apt-get install -y mdatp || true
-      mkdir -p /etc/opt/microsoft/mdatp
-      cat > /etc/opt/microsoft/mdatp/mdatp_onboard.json <<'J'
-      {"tenantId":"9e2777ed-8237-4ab9-9275-2c144d6f6da3","placeholder":true}
-      J
-      echo 'Replace /etc/opt/microsoft/mdatp/mdatp_onboard.json with real onboarding file then run: mdatp onboarding install' > /etc/opt/microsoft/mdatp/POST-INSTALL-README || true
-      mdatp health --help >/dev/null 2>&1 || true
-      SCRIPT
+    - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
+    - curtin in-target --target=/target -- bash -c "mkdir -p /etc/apt/keyrings"
+    - curtin in-target --target=/target -- bash -c "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg"
+    - curtin in-target --target=/target -- bash -c "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft.list"
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target -- bash -c "apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log"
+    - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi"
+    - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
+  timezone: Europe/Brussels
+  user-data:
+    disable_root: true
+    package_update: false
+    package_upgrade: false
+    runcmd:
+      - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
