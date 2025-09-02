@@ -1,0 +1,155 @@
+#cloud-config
+# Ubuntu 24.04 Autoinstall (Option A: Simple LUKS root, no LVM)
+# Generated: 2025-09-02
+# This variant simplifies encryption layering: GPT -> ESP -> /boot -> LUKS -> ext4 /
+# Benefits: simpler initramfs path, no custom LVM activation hook, easier unattended unlock.
+# Replace the placeholder passphrase before production use. DO NOT reuse in multiple machines.
+
+autoinstall:
+  version: 1
+  interactive-sections: []
+
+  locale: en_US.UTF-8
+  keyboard:
+    layout: be
+    variant: nodeadkeys
+
+  identity:
+    hostname: p250253.vito.local
+    username: pcinstall
+    # Password hash for initial user (rotate after deployment)
+    password: "$6$rounds=4096$9SgMJXq8AVq46PUs$.I/aiO8U.o9pfYOw7CrpoXCduJTWToE9usOASpK9aqUcNYMvEAQcZ1B5OamhbR2FEbQOdsrgVhnEneKwXczSp1"
+
+  network:
+    version: 2
+    ethernets:
+      all:
+        match: {name: "*"}
+        dhcp4: true
+        dhcp6: false
+        set-name: eth0
+
+  updates: security
+  apt:
+    primary:
+      - arches: [amd64]
+        uri: http://archive.ubuntu.com/ubuntu
+
+  # -------- Storage (Option A) --------
+  # Layout: disk0 (GPT)
+  #  1: 1G  EFI (vfat)
+  #  2: 2G  /boot (ext4)
+  #  3: rest encrypted LUKS (dm-crypt) -> ext4 mounted at /
+  # Initial LUKS passphrase: Testing (rotated later or replaced by keyfile for auto-unlock)
+  storage:
+    config:
+      - id: disk0
+        type: disk
+        ptable: gpt
+        name: disk0
+        grub_device: false
+        match:
+          ssd: true
+
+      - id: esp
+        type: partition
+        device: disk0
+        size: 1G
+        flag: boot
+        number: 1
+        grub_device: true
+        wipe: superblock
+      - id: esp-format
+        type: format
+        fstype: fat32
+        volume: esp
+
+      - id: boot
+        type: partition
+        device: disk0
+        size: 2G
+        number: 2
+        wipe: superblock
+      - id: boot-format
+        type: format
+        fstype: ext4
+        volume: boot
+
+      - id: crypt-part
+        type: partition
+        device: disk0
+        size: -1
+        number: 3
+        wipe: superblock
+
+      - id: luks-root
+        type: dm_crypt
+        dm_name: luksroot
+        volume: crypt-part
+        key: Testing   # Initial passphrase (rotate or remove after keyfile auto-unlock)
+
+      - id: luks-root-fs
+        type: format
+        fstype: ext4
+        volume: luks-root
+        label: ROOTFS
+
+      - id: mount-root
+        type: mount
+        device: luks-root-fs
+        path: /
+      - id: mount-boot
+        type: mount
+        device: boot-format
+        path: /boot
+      - id: mount-esp
+        type: mount
+        device: esp-format
+        path: /boot/efi
+
+  ssh:
+    install-server: false
+    authorized-keys: []
+
+  packages:
+    - curl
+
+  snaps: []
+
+  early-commands:
+    - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
+
+  # Late commands: add Defender + configure unattended LUKS unlock via keyfile (embedded in initramfs)
+  late-commands:
+    # Reset machine-id for uniqueness
+  - curtin in-target --target=/target -- bash -c "truncate -s0 /etc/machine-id; rm -f /var/lib/dbus/machine-id || true; ln -sf /etc/machine-id /var/lib/dbus/machine-id"
+    # Log start
+  - curtin in-target --target=/target -- bash -c "echo '*** Late commands start (Option A) ***' > /root/autoinstall.log"
+    # Defender repository
+  - curtin in-target --target=/target apt-get update || true
+  - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
+  - curtin in-target --target=/target -- bash -c "mkdir -p /etc/apt/keyrings"
+  - curtin in-target --target=/target -- bash -c "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg"
+  - curtin in-target --target=/target -- bash -c "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft.list"
+  - curtin in-target --target=/target apt-get update || true
+  - curtin in-target --target=/target -- bash -c "apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log"
+  - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi"
+    # Create keyfile and configure crypttab for auto-unlock (unattended boot)
+  - curtin in-target --target=/target -- bash -c "set -euo pipefail; KEYDIR=/etc/cryptsetup-keys.d; KF=$KEYDIR/luksroot.key; install -d -m 700 $KEYDIR; umask 077; head -c 64 /dev/urandom > $KF; printf 'Testing\n' | cryptsetup luksAddKey /dev/mapper/luksroot $KF; UUID=$(blkid -s UUID -o value /dev/mapper/luksroot); sed -i '/^luksroot /d' /etc/crypttab || true; echo 'luksroot UUID='${UUID}' '$KF' luks,discard,initramfs' >> /etc/crypttab; chmod 600 /etc/crypttab $KF; update-initramfs -u; if lsinitramfs /boot/initrd.img-$(ls /boot | grep -E '^initrd.img-' | sort | tail -1) | grep -q luksroot.key; then echo 'Keyfile embedded' >> /root/autoinstall.log; else echo 'Keyfile NOT embedded' >> /root/autoinstall.log; fi"
+    - curtin in-target --target=/target -- bash -c "set -euo pipefail; KEYDIR=/etc/cryptsetup-keys.d; KF=$KEYDIR/luksroot.key; install -d -m 700 $KEYDIR; umask 077; head -c 64 /dev/urandom > $KF; ENCDEV=$(lsblk -no PKNAME /dev/mapper/luksroot | head -1); ENCDEV=/dev/${ENCDEV}; printf 'Testing\n' | cryptsetup luksAddKey $ENCDEV $KF; UUID=$(blkid -s UUID -o value $ENCDEV); sed -i '/^luksroot /d' /etc/crypttab || true; echo 'luksroot UUID='${UUID}' '$KF' luks,discard,initramfs' >> /etc/crypttab; chmod 600 /etc/crypttab $KF; update-initramfs -u; IMG=$(ls /boot | grep -E '^initrd.img-' | sort | tail -1); if lsinitramfs /boot/$IMG | grep -q luksroot.key; then echo 'Keyfile embedded' >> /root/autoinstall.log; else echo 'Keyfile NOT embedded' >> /root/autoinstall.log; fi"
+  - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete (Option A) ***' >> /root/autoinstall.log"
+
+  timezone: Europe/Brussels
+  user-data:
+    disable_root: true
+    package_update: false
+    package_upgrade: false
+    runcmd:
+      - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
+
+# Post-Install Recommendations:
+# 1. Verify unattended boot works (no passphrase prompt). If prompted, check /etc/crypttab and initramfs.
+# 2. (Optional) Remove original passphrase after confirming keyfile works: cryptsetup luksRemoveKey /dev/mapper/luksroot
+# 3. Rotate user password & disable passwordless sudo.
+# 4. Review Defender onboarding status.
+# ---------------------------------------------------------------------------
