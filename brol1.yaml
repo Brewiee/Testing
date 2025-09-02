@@ -1,0 +1,120 @@
+#cloud-config
+autoinstall:
+  version: 1
+
+  locale: en_US.UTF-8
+  keyboard:
+    layout: be
+    variant: nodeadkeys
+
+  identity:
+    hostname: p250253.vito.local
+    username: pcinstall
+    password: "$6$rounds=4096$9SgMJXq8AVq46PUs$.I/aiO8U.o9pfYOw7CrpoXCduJTWToE9usOASpK9aqUcNYMvEAQcZ1B5OamhbR2FEbQOdsrgVhnEneKwXczSp1"
+
+  network:
+    version: 2
+    ethernets:
+      all:
+        match: {name: "*"}
+        dhcp4: true
+        dhcp6: false
+        set-name: eth0
+
+  updates: security
+  apt:
+    primary:
+      - arches: [amd64]
+        uri: http://archive.ubuntu.com/ubuntu
+
+  storage:
+    config:
+      - id: disk0
+        type: disk
+        ptable: msdos
+        match:
+          removable: false
+        grub_device: true
+      - id: boot
+        type: partition
+        device: disk0
+        size: 1G
+        flag: boot
+        number: 1
+        wipe: superblock
+      - id: boot-format
+        type: format
+        fstype: ext4
+        volume: boot
+      - id: crypt-part
+        type: partition
+        device: disk0
+        size: -1
+        number: 2
+        wipe: superblock
+      - id: luks-root
+        type: dm_crypt
+        dm_name: luksroot
+        volume: crypt-part
+        key: TempInitialPass   # Initial passphrase; TPM2 token enrolled later for auto-unlock (passphrase retained as fallback)
+      - id: luks-root-fs
+        type: format
+        fstype: ext4
+        volume: luks-root
+        label: ROOTFS
+      - id: mount-root
+        type: mount
+        device: luks-root-fs
+        path: /
+      - id: mount-boot
+        type: mount
+        device: boot-format
+        path: /boot
+
+  ssh:
+    install-server: false
+    authorized-keys: []
+
+  early-commands:
+    - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
+
+  late-commands:
+    - curtin in-target --target=/target -- bash -c "echo '*** late start ***' > /root/autoinstall.log"
+    - curtin in-target --target=/target -- apt-get update || true
+    - curtin in-target --target=/target -- apt-get -y install curl gnupg software-properties-common || true
+    - curtin in-target --target=/target -- bash -c 'mkdir -p /etc/apt/keyrings'
+    - curtin in-target --target=/target -- bash -c 'curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg'
+    - curtin in-target --target=/target -- bash -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft.list'
+    - curtin in-target --target=/target -- apt-get update || true
+    - curtin in-target --target=/target -- bash -c 'apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log'
+    - curtin in-target --target=/target -- bash -c 'if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi'
+    - curtin in-target --target=/target -- apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools clevis clevis-luks clevis-initramfs clevis-tpm2 || echo cryptsetup/clevis install failed >> /root/autoinstall.log
+    # Bind LUKS slot to TPM2 with clevis (PCR7 if EFI; unbound fallback) and rebuild initramfs
+    - |
+      curtin in-target --target=/target -- bash -c 'set -e
+      LOG=/root/autoinstall.log
+      echo "[clevis] bind_start" >>$LOG
+      DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1)
+      if [ -z "$DEV" ]; then echo "[clevis] no_dev" >>$LOG; exit 0; fi
+      if [ -d /sys/firmware/efi ]; then POLICY='{"pcr_ids":"7"}'; else POLICY='{}'; fi
+      echo -n TempInitialPass | clevis luks bind -f -k - -d "$DEV" tpm2 "$POLICY" 2>>$LOG && echo "[clevis] bind_pcr_ok" >>$LOG || echo "[clevis] bind_pcr_fail" >>$LOG
+      if ! clevis luks list -d "$DEV" 2>/dev/null | grep -qi tpm2; then
+        echo -n TempInitialPass | clevis luks bind -f -k - -d "$DEV" tpm2 '{}' 2>>$LOG && echo "[clevis] bind_unbound_ok" >>$LOG || echo "[clevis] bind_unbound_fail" >>$LOG
+      fi
+      clevis luks list -d "$DEV" 2>/dev/null | grep -qi tpm2 && echo "[clevis] token_present" >>$LOG || echo "[clevis] token_missing" >>$LOG
+      # Ensure crypttab does NOT contain old tpm2-device option
+      if grep -q "^luksroot" /etc/crypttab; then sed -i "s/,tpm2-device=auto//" /etc/crypttab || true; fi
+      update-initramfs -u -k all >>$LOG 2>&1 || echo "[clevis] update-initramfs_fail" >>$LOG
+      echo "[clevis] bind_done" >>$LOG'
+    # Passphrase TempInitialPass retained for fallback; remove after validation if desired
+    - curtin in-target --target=/target -- bash -c "echo '*** late done ***' >> /root/autoinstall.log"
+
+  timezone: Europe/Brussels
+  user-data:
+    disable_root: true
+    package_update: false
+    package_upgrade: false
+    runcmd:
+      - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
+
+# After install: verify unattended boot, then rotate user password & remove passwordless sudo.
