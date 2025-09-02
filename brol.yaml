@@ -56,7 +56,7 @@ autoinstall:
         type: dm_crypt
         dm_name: luksroot
         volume: crypt-part
-        key: TempInitialPass   # Temporary passphrase; replaced by keyfile
+        key: TempInitialPass   # Initial passphrase; TPM2 token enrolled later for auto-unlock (passphrase retained as fallback)
       - id: luks-root-fs
         type: format
         fstype: ext4
@@ -75,9 +75,6 @@ autoinstall:
     install-server: false
     authorized-keys: []
 
-  packages: [curl, cryptsetup, cryptsetup-initramfs, tpm2-tools]
-  snaps: []
-
   early-commands:
     - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
 
@@ -92,20 +89,16 @@ autoinstall:
     - curtin in-target --target=/target -- bash -c 'apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log'
     - curtin in-target --target=/target -- bash -c 'if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi'
     - curtin in-target --target=/target apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || echo cryptsetup/tpm2 install failed >> /root/autoinstall.log
-    # Enroll TPM2 auto-unlock for LUKS root (retain original passphrase as fallback)
+    # Enroll TPM2 token outside chroot (mapping is active here); no initramfs regen needed
     - |
-      curtin in-target --target=/target -- bash -c 'set -e
-      LOG=/root/autoinstall.log
-      echo "[tpm] start" >>$LOG
-      DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1)
-      if [ -z "$DEV" ]; then echo "[tpm] no_dev" >>$LOG; exit 1; fi
-      # Enroll TPM2 binding (uses existing passphrase to authorize header modification)
-      echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto --unlock-key-file=- "$DEV" 2>>$LOG || echo "[tpm] enroll_fail" >>$LOG
-      # Verify TPM token present
-      if cryptsetup luksDump "$DEV" | grep -qi tpm2; then echo "[tpm] token_present" >>$LOG; else echo "[tpm] token_missing" >>$LOG; fi
-      # Regenerate initramfs so systemd picks up new token
-      update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] update-initramfs_fail" >>$LOG
-      echo "[tpm] done" >>$LOG'
+      LOG=/target/root/autoinstall.log
+      echo "[tpm] enroll_start" >>$LOG
+      DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1)
+      if [ -z "$DEV" ]; then echo "[tpm] no_luks_device" >>$LOG; exit 0; fi
+      if [ -d /sys/firmware/efi ]; then PCR_ARG='--tpm2-pcrs=7'; else PCR_ARG=''; fi
+      echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto $PCR_ARG --unlock-key-file=- "$DEV" 2>>$LOG || echo "[tpm] enroll_fail" >>$LOG
+      cryptsetup luksDump "$DEV" 2>/dev/null | grep -qi tpm2 && echo "[tpm] token_present" >>$LOG || echo "[tpm] token_missing" >>$LOG
+      echo "[tpm] enroll_done" >>$LOG
     # Passphrase TempInitialPass still valid; can optionally be removed later with systemd-cryptenroll --wipe-slot=... 
     - curtin in-target --target=/target -- bash -c "echo '*** late done ***' >> /root/autoinstall.log"
 
