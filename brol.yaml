@@ -80,26 +80,36 @@ autoinstall:
 
   late-commands:
     - curtin in-target --target=/target -- bash -c "echo '*** late start ***' > /root/autoinstall.log"
-    - curtin in-target --target=/target apt-get update || true
-    - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
+    - curtin in-target --target=/target -- apt-get update || true
+    - curtin in-target --target=/target -- apt-get -y install curl gnupg software-properties-common || true
     - curtin in-target --target=/target -- bash -c 'mkdir -p /etc/apt/keyrings'
     - curtin in-target --target=/target -- bash -c 'curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg'
     - curtin in-target --target=/target -- bash -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft.list'
-    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target -- apt-get update || true
     - curtin in-target --target=/target -- bash -c 'apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log'
     - curtin in-target --target=/target -- bash -c 'if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi'
-    - curtin in-target --target=/target apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || echo cryptsetup/tpm2 install failed >> /root/autoinstall.log
-    # Enroll TPM2 token outside chroot (mapping is active here); no initramfs regen needed
+    - curtin in-target --target=/target -- apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || echo cryptsetup/tpm2 install failed >> /root/autoinstall.log
+    # Enroll TPM2 token inside target and regenerate initramfs
     - |
-      LOG=/target/root/autoinstall.log
+      curtin in-target --target=/target -- bash -c 'set -e
+      LOG=/root/autoinstall.log
       echo "[tpm] enroll_start" >>$LOG
-      DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1)
-      if [ -z "$DEV" ]; then echo "[tpm] no_luks_device" >>$LOG; exit 0; fi
-      if [ -d /sys/firmware/efi ]; then PCR_ARG='--tpm2-pcrs=7'; else PCR_ARG=''; fi
+      DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1)
+      if [ -z "$DEV" ]; then echo "[tpm] no_dev" >>$LOG; exit 0; fi
+      if [ -d /sys/firmware/efi ]; then PCR_ARG="--tpm2-pcrs=7"; else PCR_ARG=""; fi
       echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto $PCR_ARG --unlock-key-file=- "$DEV" 2>>$LOG || echo "[tpm] enroll_fail" >>$LOG
-      cryptsetup luksDump "$DEV" 2>/dev/null | grep -qi tpm2 && echo "[tpm] token_present" >>$LOG || echo "[tpm] token_missing" >>$LOG
-      echo "[tpm] enroll_done" >>$LOG
-    # Passphrase TempInitialPass still valid; can optionally be removed later with systemd-cryptenroll --wipe-slot=... 
+      if cryptsetup luksDump "$DEV" | grep -qi tpm2; then echo "[tpm] token_present" >>$LOG; else echo "[tpm] token_missing" >>$LOG; fi
+      # Patch crypttab to add tpm2-device option
+      if grep -q "^luksroot" /etc/crypttab; then
+        if ! grep -q "tpm2-device=auto" /etc/crypttab; then
+          sed -i "/^luksroot / s|$|,tpm2-device=auto|" /etc/crypttab && echo "[tpm] crypttab_patched" >>$LOG || echo "[tpm] crypttab_patch_fail" >>$LOG
+        fi
+      else
+        echo "[tpm] crypttab_missing_entry" >>$LOG
+      fi
+      update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] update-initramfs_fail" >>$LOG
+      echo "[tpm] enroll_done" >>$LOG'
+    # Passphrase TempInitialPass still valid; can optionally be removed later after verifying unattended boot
     - curtin in-target --target=/target -- bash -c "echo '*** late done ***' >> /root/autoinstall.log"
 
   timezone: Europe/Brussels
