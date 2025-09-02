@@ -36,6 +36,7 @@ autoinstall:
   # ----- Updates / Extras -----------------------------------------------------
   updates: security
   apt:
+    preserve_sources_list: false
     primary:
       - arches: [amd64]
         uri: http://archive.ubuntu.com/ubuntu
@@ -104,7 +105,7 @@ autoinstall:
         type: dm_crypt
         dm_name: luksroot
         volume: lvroot
-        key: Testing   # Initial passphrase; rotated by postinstall script
+        key: Testing   # Plain passphrase for initial build; change post-install.
 
       # Format encrypted root --------------------------------------------------
       - id: luks-root-fs
@@ -113,7 +114,7 @@ autoinstall:
         volume: luks-root
         label: ROOTFS
 
-      # Mount operations (order matters) --------------------------------------
+  # Mount operations (order matters) --------------------------------------
       - id: mount-root
         type: mount
         device: luks-root-fs
@@ -147,20 +148,16 @@ autoinstall:
   # ----- Late Commands (run in target root via curtin in-target) -------------
   # Useful for: encrypting datasets later, provisioning dotfiles, hardening.
   late-commands:
-    # (Polish) Early LVM activation hook to support LUKS-on-LVM layout on first boot
-  - curtin in-target --target=/target -- bash -c 'mkdir -p /etc/initramfs-tools/scripts/local-top; printf "%s\n" "#!/bin/sh" "PREREQ=\"\"" "prereqs(){ echo \"$PREREQ\"; }" "case \"$1\" in" "  prereqs) prereqs; exit 0 ;;" "esac" ". /scripts/functions" "modprobe dm_mod 2>/dev/null || true" "if command -v lvm >/dev/null 2>&1; then" "  lvm pvscan --cache 2>/dev/null || true" "  lvm vgchange -ay 2>/dev/null || true" "fi" "exit 0" > /etc/initramfs-tools/scripts/local-top/10-activate-lvm; chmod 755 /etc/initramfs-tools/scripts/local-top/10-activate-lvm'
-    # (Polish) Reset machine-id for image uniqueness
-  - curtin in-target --target=/target -- bash -c "truncate -s0 /etc/machine-id; rm -f /var/lib/dbus/machine-id || true; ln -sf /etc/machine-id /var/lib/dbus/machine-id"
-  - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
-  - curtin in-target --target=/target apt-get update || true
-  - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
-  - curtin in-target --target=/target -- bash -c "mkdir -p /etc/apt/keyrings"
-  - curtin in-target --target=/target -- bash -c "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg"
-  - curtin in-target --target=/target -- bash -c "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft.list"
-  - curtin in-target --target=/target apt-get update || true
-  - curtin in-target --target=/target -- bash -c "apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log"
-  - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi"
-  - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
+    - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
+    - curtin in-target --target=/target -- bash -c "mkdir -p /etc/apt/keyrings"
+    - curtin in-target --target=/target -- bash -c "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg"
+    - curtin in-target --target=/target -- bash -c "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft.list"
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target -- bash -c "apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log"
+    - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi"
+    - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
 
   # ----- User Data / OEM Config ----------------------------------------------
   timezone: Europe/Brussels
