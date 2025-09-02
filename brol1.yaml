@@ -88,25 +88,23 @@ autoinstall:
     - curtin in-target --target=/target -- apt-get update || true
     - curtin in-target --target=/target -- bash -c 'apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log'
     - curtin in-target --target=/target -- bash -c 'if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi'
-    - curtin in-target --target=/target -- apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools clevis clevis-luks clevis-initramfs clevis-tpm2 || echo cryptsetup/clevis install failed >> /root/autoinstall.log
-    # Bind LUKS slot to TPM2 with clevis (PCR7 if EFI; unbound fallback) and rebuild initramfs
+    - curtin in-target --target=/target -- apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || echo cryptsetup/tpm2 install failed >> /root/autoinstall.log
+    # Enroll TPM2 token (systemd-cryptenroll) and rebuild initramfs; no crypttab modification needed
     - |
-      curtin in-target --target=/target -- bash -c 'set -e
-      LOG=/root/autoinstall.log
-      echo "[clevis] bind_start" >>$LOG
-      DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1)
-      if [ -z "$DEV" ]; then echo "[clevis] no_dev" >>$LOG; exit 0; fi
-      if [ -d /sys/firmware/efi ]; then POLICY='{"pcr_ids":"7"}'; else POLICY='{}'; fi
-      echo -n TempInitialPass | clevis luks bind -f -k - -d "$DEV" tpm2 "$POLICY" 2>>$LOG && echo "[clevis] bind_pcr_ok" >>$LOG || echo "[clevis] bind_pcr_fail" >>$LOG
-      if ! clevis luks list -d "$DEV" 2>/dev/null | grep -qi tpm2; then
-        echo -n TempInitialPass | clevis luks bind -f -k - -d "$DEV" tpm2 '{}' 2>>$LOG && echo "[clevis] bind_unbound_ok" >>$LOG || echo "[clevis] bind_unbound_fail" >>$LOG
-      fi
-      clevis luks list -d "$DEV" 2>/dev/null | grep -qi tpm2 && echo "[clevis] token_present" >>$LOG || echo "[clevis] token_missing" >>$LOG
-      # Ensure crypttab does NOT contain old tpm2-device option
-      if grep -q "^luksroot" /etc/crypttab; then sed -i "s/,tpm2-device=auto//" /etc/crypttab || true; fi
-      update-initramfs -u -k all >>$LOG 2>&1 || echo "[clevis] update-initramfs_fail" >>$LOG
-      echo "[clevis] bind_done" >>$LOG'
-    # Passphrase TempInitialPass retained for fallback; remove after validation if desired
+      curtin in-target --target=/target -- bash -c '
+        set -e
+        LOG=/root/autoinstall.log
+        echo "[tpm] enroll_start" >>$LOG
+        DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1)
+        if [ -z "$DEV" ]; then echo "[tpm] no_dev" >>$LOG; exit 0; fi
+        # Use PCR7 if EFI, else no PCR binding
+        if [ -d /sys/firmware/efi ]; then PCR_OPT="--tpm2-pcrs=7"; else PCR_OPT=""; fi
+        echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto $PCR_OPT --unlock-key-file=- "$DEV" >>$LOG 2>&1 || echo "[tpm] enroll_fail" >>$LOG
+        if cryptsetup luksDump "$DEV" | grep -qi tpm2; then echo "[tpm] token_present" >>$LOG; else echo "[tpm] token_missing" >>$LOG; fi
+        update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] update_initramfs_fail" >>$LOG
+        echo "[tpm] enroll_done" >>$LOG
+      '
+    # Passphrase TempInitialPass retained for fallback; remove after unattended boot confirmed
     - curtin in-target --target=/target -- bash -c "echo '*** late done ***' >> /root/autoinstall.log"
 
   timezone: Europe/Brussels
