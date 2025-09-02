@@ -46,7 +46,6 @@ autoinstall:
         type: disk
         ptable: gpt
         # Auto-select the single internal disk (non-removable). Assumes only one real disk present.
-        # If multiple internal disks ever appear, replace with an explicit path (e.g. /dev/nvme0n1) or add model/serial match.
         match:
           removable: false
         grub_device: false
@@ -57,8 +56,8 @@ autoinstall:
         size: 1G
         flag: boot
         number: 1
-        grub_device: true
         wipe: superblock
+        grub_device: true
       - id: esp-format
         type: format
         fstype: fat32
