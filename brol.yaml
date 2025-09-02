@@ -45,10 +45,11 @@ autoinstall:
       - id: disk0
         type: disk
         ptable: gpt
-        name: disk0
-        grub_device: false
+        # Auto-select the single internal disk (non-removable). Assumes only one real disk present.
+        # If multiple internal disks ever appear, replace with an explicit path (e.g. /dev/nvme0n1) or add model/serial match.
         match:
-          ssd: true
+          removable: false
+        grub_device: false
 
       - id: esp
         type: partition
