@@ -133,8 +133,35 @@ autoinstall:
     - curtin in-target --target=/target apt-get update || true
     - curtin in-target --target=/target -- bash -c 'apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log'
     - curtin in-target --target=/target -- bash -c 'if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi'
-  # Provision keyfile & crypttab (inside target; derive header device via cryptsetup status)
-  - curtin in-target --target=/target -- bash -c 'set -euo pipefail; LOG=/root/autoinstall.log; echo "[late-commands] Keyfile provisioning start" >> "$LOG"; HEADER_DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1); if [ -z "$HEADER_DEV" ]; then echo "Could not determine header device" >> "$LOG"; exit 1; fi; KEYDIR=/etc/cryptsetup-keys.d; KF=$KEYDIR/luksroot.key; install -d -m 700 "$KEYDIR"; if [ ! -f "$KF" ]; then umask 077; head -c 64 /dev/urandom > "$KF"; fi; printf "Testing\n" | cryptsetup luksAddKey "$HEADER_DEV" "$KF" || echo "(key may already exist)" >> "$LOG"; UUID=$(blkid -s UUID -o value "$HEADER_DEV"); if [ -z "$UUID" ]; then echo "Failed to read UUID of $HEADER_DEV" >> "$LOG"; exit 1; fi; sed -i "/^luksroot /d" /etc/crypttab || true; echo "luksroot UUID=$UUID $KF luks,discard,initramfs" >> /etc/crypttab; chmod 600 /etc/crypttab "$KF"; update-initramfs -u; IMG=$(ls /boot/initrd.img-* 2>/dev/null | sort | tail -1); if [ -n "$IMG" ] && lsinitramfs "$IMG" | grep -q luksroot.key; then echo "Keyfile embedded" >> "$LOG"; else echo "Keyfile NOT embedded" >> "$LOG"; fi'
+    # Provision keyfile & crypttab (inside target; derive header device via cryptsetup status)
+    - |
+      curtin in-target --target=/target -- bash -c 'cat > /root/provision-keyfile.sh <<"EOF"
+      #!/usr/bin/env bash
+      set -euo pipefail
+      LOG=/root/autoinstall.log
+      echo "[late-commands] Keyfile provisioning start" >> "$LOG"
+      HEADER_DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1)
+      if [ -z "$HEADER_DEV" ]; then echo "Could not determine header device" >> "$LOG"; exit 1; fi
+      KEYDIR=/etc/cryptsetup-keys.d
+      KF=$KEYDIR/luksroot.key
+      install -d -m 700 "$KEYDIR"
+      if [ ! -f "$KF" ]; then umask 077; head -c 64 /dev/urandom > "$KF"; fi
+      printf "Testing\n" | cryptsetup luksAddKey "$HEADER_DEV" "$KF" || echo "(key may already exist)" >> "$LOG"
+      UUID=$(blkid -s UUID -o value "$HEADER_DEV")
+      if [ -z "$UUID" ]; then echo "Failed to read UUID of $HEADER_DEV" >> "$LOG"; exit 1; fi
+      sed -i "/^luksroot /d" /etc/crypttab || true
+      echo "luksroot UUID=$UUID $KF luks,discard,initramfs" >> /etc/crypttab
+      chmod 600 /etc/crypttab "$KF"
+      update-initramfs -u
+      IMG=$(ls /boot/initrd.img-* 2>/dev/null | sort | tail -1)
+      if [ -n "$IMG" ] && lsinitramfs "$IMG" | grep -q luksroot.key; then
+        echo "Keyfile embedded" >> "$LOG"
+      else
+        echo "Keyfile NOT embedded" >> "$LOG"
+      fi
+      EOF
+      chmod 700 /root/provision-keyfile.sh'
+    - curtin in-target --target=/target -- bash -c '/root/provision-keyfile.sh'
     - curtin in-target --target=/target -- bash -c 'echo "*** Late commands complete (Option A) ***" >> /root/autoinstall.log'
 
   timezone: Europe/Brussels
