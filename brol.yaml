@@ -75,7 +75,7 @@ autoinstall:
     install-server: false
     authorized-keys: []
 
-  packages: [curl, cryptsetup, cryptsetup-initramfs]
+  packages: [curl, cryptsetup, cryptsetup-initramfs, tpm2-tools]
   snaps: []
 
   early-commands:
@@ -91,28 +91,22 @@ autoinstall:
     - curtin in-target --target=/target apt-get update || true
     - curtin in-target --target=/target -- bash -c 'apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log'
     - curtin in-target --target=/target -- bash -c 'if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi'
-    - curtin in-target --target=/target apt-get -y install cryptsetup cryptsetup-initramfs || echo cryptsetup install failed >> /root/autoinstall.log
-    # Create keyfile, add to LUKS, update crypttab for unattended unlock (retain original passphrase)
+    - curtin in-target --target=/target apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || echo cryptsetup/tpm2 install failed >> /root/autoinstall.log
+    # Enroll TPM2 auto-unlock for LUKS root (retain original passphrase as fallback)
     - |
       curtin in-target --target=/target -- bash -c 'set -e
       LOG=/root/autoinstall.log
-      echo "[keyfile] start" >>$LOG
+      echo "[tpm] start" >>$LOG
       DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1)
-      if [ -z "$DEV" ]; then echo "[keyfile] no_dev" >>$LOG; exit 1; fi
-      install -d -m 700 /etc/cryptsetup-keys.d
-      KF=/etc/cryptsetup-keys.d/luksroot.key
-      if [ ! -s "$KF" ]; then umask 077; head -c 64 /dev/urandom > "$KF"; fi
-      echo TempInitialPass | cryptsetup luksAddKey "$DEV" "$KF" 2>>$LOG || echo "[keyfile] addkey_fail" >>$LOG
-      UUID=$(blkid -s UUID -o value "$DEV")
-      sed -i "/^luksroot /d" /etc/crypttab || true
-      echo "luksroot UUID=$UUID $KF luks,discard,initramfs" >> /etc/crypttab
-      chmod 600 /etc/crypttab "$KF"
-      echo "[keyfile] crypttab:" >>$LOG
-      grep "^luksroot " /etc/crypttab >>$LOG || echo "[keyfile] crypttab_line_missing" >>$LOG
-      update-initramfs -u -k all >>$LOG 2>&1 || echo "[keyfile] update-initramfs_fail" >>$LOG
-      if lsinitramfs /boot/initrd.img-* | grep -q luksroot.key; then echo "[keyfile] embedded" >>$LOG; else echo "[keyfile] not_embedded" >>$LOG; fi
-      echo "[keyfile] done" >>$LOG'
-    # Keeping temporary passphrase as fallback; not removed.
+      if [ -z "$DEV" ]; then echo "[tpm] no_dev" >>$LOG; exit 1; fi
+      # Enroll TPM2 binding (uses existing passphrase to authorize header modification)
+      echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto --unlock-key-file=- "$DEV" 2>>$LOG || echo "[tpm] enroll_fail" >>$LOG
+      # Verify TPM token present
+      if cryptsetup luksDump "$DEV" | grep -qi tpm2; then echo "[tpm] token_present" >>$LOG; else echo "[tpm] token_missing" >>$LOG; fi
+      # Regenerate initramfs so systemd picks up new token
+      update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] update-initramfs_fail" >>$LOG
+      echo "[tpm] done" >>$LOG'
+    # Passphrase TempInitialPass still valid; can optionally be removed later with systemd-cryptenroll --wipe-slot=... 
     - curtin in-target --target=/target -- bash -c "echo '*** late done ***' >> /root/autoinstall.log"
 
   timezone: Europe/Brussels
