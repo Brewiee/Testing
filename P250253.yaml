@@ -36,7 +36,6 @@ autoinstall:
   # ----- Updates / Extras -----------------------------------------------------
   updates: security
   apt:
-    preserve_sources_list: false
     primary:
       - arches: [amd64]
         uri: http://archive.ubuntu.com/ubuntu
@@ -148,6 +147,11 @@ autoinstall:
   # ----- Late Commands (run in target root via curtin in-target) -------------
   # Useful for: encrypting datasets later, provisioning dotfiles, hardening.
   late-commands:
+  # (Polish) Early LVM activation hook to support LUKS-on-LVM layout on first boot
+  - curtin in-target --target=/target -- bash -c "mkdir -p /etc/initramfs-tools/scripts/local-top && cat >/etc/initramfs-tools/scripts/local-top/10-activate-lvm <<'SCRIPT'\n#!/bin/sh\nPREREQ=\"\"\nprereqs(){ echo \"$PREREQ\"; }\ncase \"$1\" in\n  prereqs) prereqs; exit 0 ;;\n esac\n. /scripts/functions\nmodprobe dm_mod 2>/dev/null || true\nif command -v lvm >/dev/null 2>&1; then\n  lvm pvscan --cache 2>/dev/null || true\n  lvm vgchange -ay 2>/dev/null || true\nfi\nexit 0\nSCRIPT\nchmod 755 /etc/initramfs-tools/scripts/local-top/10-activate-lvm"
+  - curtin in-target --target=/target update-initramfs -u
+  # (Polish) Reset machine-id for image uniqueness
+  - curtin in-target --target=/target -- bash -c "truncate -s0 /etc/machine-id; rm -f /var/lib/dbus/machine-id || true; ln -sf /etc/machine-id /var/lib/dbus/machine-id"
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
     - curtin in-target --target=/target apt-get update || true
     - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
