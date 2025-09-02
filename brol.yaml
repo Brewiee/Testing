@@ -107,7 +107,8 @@ autoinstall:
       sed -i "/^luksroot /d" /etc/crypttab || true
       echo "luksroot UUID=$UUID $KF luks,discard,initramfs" >> /etc/crypttab
       chmod 600 /etc/crypttab "$KF"
-      echo "[keyfile] crypttab: $(grep '^luksroot ' /etc/crypttab)" >>$LOG
+      echo "[keyfile] crypttab:" >>$LOG
+      grep "^luksroot " /etc/crypttab >>$LOG || echo "[keyfile] crypttab_line_missing" >>$LOG
       update-initramfs -u -k all >>$LOG 2>&1 || echo "[keyfile] update-initramfs_fail" >>$LOG
       if lsinitramfs /boot/initrd.img-* | grep -q luksroot.key; then echo "[keyfile] embedded" >>$LOG; else echo "[keyfile] not_embedded" >>$LOG; fi
       echo "[keyfile] done" >>$LOG'
