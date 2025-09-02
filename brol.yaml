@@ -122,22 +122,49 @@ autoinstall:
   # Late commands: add Defender + configure unattended LUKS unlock via keyfile (embedded in initramfs)
   late-commands:
     # Reset machine-id for uniqueness
-  - curtin in-target --target=/target -- bash -c "truncate -s0 /etc/machine-id; rm -f /var/lib/dbus/machine-id || true; ln -sf /etc/machine-id /var/lib/dbus/machine-id"
+    - curtin in-target --target=/target -- bash -c 'truncate -s0 /etc/machine-id; rm -f /var/lib/dbus/machine-id || true; ln -sf /etc/machine-id /var/lib/dbus/machine-id'
     # Log start
-  - curtin in-target --target=/target -- bash -c "echo '*** Late commands start (Option A) ***' > /root/autoinstall.log"
+    - curtin in-target --target=/target -- bash -c 'echo "*** Late commands start (Option A) ***" > /root/autoinstall.log'
     # Defender repository
-  - curtin in-target --target=/target apt-get update || true
-  - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
-  - curtin in-target --target=/target -- bash -c "mkdir -p /etc/apt/keyrings"
-  - curtin in-target --target=/target -- bash -c "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg"
-  - curtin in-target --target=/target -- bash -c "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft.list"
-  - curtin in-target --target=/target apt-get update || true
-  - curtin in-target --target=/target -- bash -c "apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log"
-  - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi"
-    # Create keyfile and configure crypttab for auto-unlock (unattended boot)
-  - curtin in-target --target=/target -- bash -c "set -euo pipefail; KEYDIR=/etc/cryptsetup-keys.d; KF=$KEYDIR/luksroot.key; install -d -m 700 $KEYDIR; umask 077; head -c 64 /dev/urandom > $KF; printf 'Testing\n' | cryptsetup luksAddKey /dev/mapper/luksroot $KF; UUID=$(blkid -s UUID -o value /dev/mapper/luksroot); sed -i '/^luksroot /d' /etc/crypttab || true; echo 'luksroot UUID='${UUID}' '$KF' luks,discard,initramfs' >> /etc/crypttab; chmod 600 /etc/crypttab $KF; update-initramfs -u; if lsinitramfs /boot/initrd.img-$(ls /boot | grep -E '^initrd.img-' | sort | tail -1) | grep -q luksroot.key; then echo 'Keyfile embedded' >> /root/autoinstall.log; else echo 'Keyfile NOT embedded' >> /root/autoinstall.log; fi"
-    - curtin in-target --target=/target -- bash -c "set -euo pipefail; KEYDIR=/etc/cryptsetup-keys.d; KF=$KEYDIR/luksroot.key; install -d -m 700 $KEYDIR; umask 077; head -c 64 /dev/urandom > $KF; ENCDEV=$(lsblk -no PKNAME /dev/mapper/luksroot | head -1); ENCDEV=/dev/${ENCDEV}; printf 'Testing\n' | cryptsetup luksAddKey $ENCDEV $KF; UUID=$(blkid -s UUID -o value $ENCDEV); sed -i '/^luksroot /d' /etc/crypttab || true; echo 'luksroot UUID='${UUID}' '$KF' luks,discard,initramfs' >> /etc/crypttab; chmod 600 /etc/crypttab $KF; update-initramfs -u; IMG=$(ls /boot | grep -E '^initrd.img-' | sort | tail -1); if lsinitramfs /boot/$IMG | grep -q luksroot.key; then echo 'Keyfile embedded' >> /root/autoinstall.log; else echo 'Keyfile NOT embedded' >> /root/autoinstall.log; fi"
-  - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete (Option A) ***' >> /root/autoinstall.log"
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
+    - curtin in-target --target=/target -- bash -c 'mkdir -p /etc/apt/keyrings'
+    - curtin in-target --target=/target -- bash -c 'curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg'
+    - curtin in-target --target=/target -- bash -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft.list'
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target -- bash -c 'apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log'
+    - curtin in-target --target=/target -- bash -c 'if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi'
+    # Create script to setup keyfile (avoid quoting issues)
+    - |
+      curtin in-target --target=/target -- bash -c 'cat > /root/setup-autounlock.sh <<"EOS"
+      #!/usr/bin/env bash
+      set -euo pipefail
+      KEYDIR=/etc/cryptsetup-keys.d
+      KF="$KEYDIR/luksroot.key"
+      install -d -m 700 "$KEYDIR"
+      if [ ! -f "$KF" ]; then
+        umask 077
+        head -c 64 /dev/urandom > "$KF"
+      fi
+      ENCDEV=$(lsblk -no PKNAME /dev/mapper/luksroot | head -1)
+      ENCDEV=/dev/${ENCDEV}
+      # Add keyfile (ignore if already added)
+      printf "Testing\n" | cryptsetup luksAddKey "$ENCDEV" "$KF" || true
+      UUID=$(blkid -s UUID -o value "$ENCDEV")
+      sed -i "/^luksroot /d" /etc/crypttab || true
+      echo "luksroot UUID=$UUID $KF luks,discard,initramfs" >> /etc/crypttab
+      chmod 600 /etc/crypttab "$KF"
+      update-initramfs -u
+      IMG=$(ls /boot | grep -E '^initrd.img-' | sort | tail -1)
+      if lsinitramfs /boot/$IMG | grep -q luksroot.key; then
+        echo "Keyfile embedded" >> /root/autoinstall.log
+      else
+        echo "Keyfile NOT embedded" >> /root/autoinstall.log
+      fi
+      EOS
+      chmod 700 /root/setup-autounlock.sh'
+    - curtin in-target --target=/target -- bash -c '/root/setup-autounlock.sh'
+    - curtin in-target --target=/target -- bash -c 'echo "*** Late commands complete (Option A) ***" >> /root/autoinstall.log'
 
   timezone: Europe/Brussels
   user-data:
