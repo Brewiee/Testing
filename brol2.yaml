@@ -93,7 +93,8 @@ autoinstall:
     - |
       cat <<'EOF' >/target/root/tpm-enroll.sh
       #!/bin/bash
-      set -e
+      # Relax error handling so we attempt all detection methods
+      set -u
       LOG=/root/autoinstall.log
       echo "[tpm] start" >>$LOG
       # Try direct cryptsetup status (mapper name expected)
@@ -110,6 +111,19 @@ autoinstall:
           if [ -d "$UNDER" ]; then
             DEV=$(readlink -f "$UNDER"/* 2>/dev/null | head -1)
           fi
+        fi
+      fi
+      # lsblk scan for crypto_LUKS if still empty
+      if [ -z "$DEV" ]; then
+        DEV=$(lsblk -pn -o NAME,FSTYPE,TYPE | awk '$2=="crypto_LUKS"{print $1;exit}')
+        [ -n "$DEV" ] && echo "[tpm] lsblk_detect=$DEV" >>$LOG
+      fi
+      # Parse crypttab UUID if still empty
+      if [ -z "$DEV" ] && grep -q '^luksroot' /etc/crypttab 2>/dev/null; then
+        CT_UUID=$(awk '/^luksroot/{print $2}' /etc/crypttab | sed 's/^UUID=//')
+        if [ -n "${CT_UUID}" ]; then
+          DEV=$(blkid -U "${CT_UUID}" 2>/dev/null || true)
+          [ -n "$DEV" ] && echo "[tpm] crypttab_uuid_detect=$DEV" >>$LOG
         fi
       fi
       if [ -z "$DEV" ]; then
