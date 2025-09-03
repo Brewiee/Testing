@@ -52,7 +52,7 @@ autoinstall:
         grub_device: true
         name: disk0
         wipe: superblock-recursive   # Force full metadata wipe (clears prior LVM PV holding disk busy)
-  # No explicit match selector: assumes exactly one internal non-USB disk present.
+        # No explicit match selector: assumes exactly one internal non-USB disk present.
 
       # EFI System Partition (UEFI-only target) -------------------------------
       - id: esp
