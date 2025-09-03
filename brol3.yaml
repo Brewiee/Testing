@@ -31,7 +31,7 @@ autoinstall:
         match: {name: "*"}
         dhcp4: true
         dhcp6: false
-        set-name: eth0
+  optional: true
 
   # ----- Updates / Extras -----------------------------------------------------
   updates: security
@@ -147,6 +147,12 @@ autoinstall:
       echo "ABORT: expected 1 internal non-usb disk, found $cnt: $internal" >&2
       exit 1
     fi
+  - |
+    # Wait for at least one NIC with carrier before proceeding (up to 60s)
+    for i in $(seq 1 30); do
+      if ip link show | grep -q 'state UP'; then echo "net ok"; break; fi
+      sleep 2
+    done
   - sed -i "s/^#*PermitRootLogin.*/PermitRootLogin no/" /etc/ssh/sshd_config || true
 
   # ----- Late Commands (run in target root via curtin in-target) -------------
