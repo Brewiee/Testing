@@ -54,22 +54,13 @@ autoinstall:
         wipe: superblock-recursive   # Force full metadata wipe (clears prior LVM PV holding disk busy)
   # No match selector: with a single physical disk present, curtin will bind this definition to it.
 
-      # (Optional dual-mode) BIOS Boot Partition (needed only if system boots in Legacy/CSM mode on GPT)
-      # Enables GRUB core.img embedding when firmware is not UEFI. Safe to keep; tiny 1MB, no filesystem.
-      - id: bios-grub
-        type: partition
-        device: disk0
-        size: 1M
-        number: 1
-        flag: bios_grub
-
-      # EFI System Partition ---------------------------------------------------
+      # EFI System Partition (UEFI-only target) -------------------------------
       - id: esp
         type: partition
         device: disk0
         size: 1G
-        flag: boot
-        number: 2
+        flag: esp
+        number: 1
         wipe: superblock         # Comment out + add preserve:true for reinstalls
         # grub_device not required on ESP when disk already marked; avoids grub installing to partition under BIOS
       - id: esp-format
@@ -82,7 +73,7 @@ autoinstall:
         type: partition
         device: disk0
         size: 2G
-        number: 3
+        number: 2
       - id: boot-format
         type: format
         fstype: ext4
@@ -93,7 +84,7 @@ autoinstall:
         type: partition
         device: disk0
         size: -1
-        number: 4
+        number: 3
         wipe: superblock
       - id: vgroot
         type: lvm_volgroup
@@ -151,8 +142,6 @@ autoinstall:
 
   # ----- Early Commands (run in installer env) -------------------------------
   early-commands:
-  # Extra defensive wipe to clear leftover signatures that can trigger NotExclusiveError
-  - bash -c 'disk=$(lsblk -ndo NAME,TYPE | awk "$2==\"disk\"{print $1; exit}"); [ -n "$disk" ] && wipefs -a "/dev/$disk" || true'
   - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
 
   # ----- Late Commands (run in target root via curtin in-target) -------------
