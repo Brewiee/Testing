@@ -40,91 +40,88 @@ autoinstall:
       - arches: [amd64]
         uri: http://archive.ubuntu.com/ubuntu
 
+  shutdown: reboot
+
   # ----- Storage Layout -------------------------------------------------------
   # Disk model: [ESP][BOOT][LVM PV -> VG -> LV(root)->LUKS->ext4 /]
   # First install: leave preserve off to allow creation. Reinstall: add preserve:true where needed.
   storage:
     config:
-      # Physical disk (match first SSD). Adjust matcher if multiple SSDs.
+      # Primary disk (adjust path if not nvme0n1)
       - id: disk0
         type: disk
         ptable: gpt
-        grub_device: true
-        name: disk0
-        wipe: superblock-recursive   # Force full metadata wipe (clears prior LVM PV holding disk busy)
-  # No explicit match selector: assumes exactly one internal non-USB disk present.
+        path: /dev/nvme0n1
+        wipe: superblock-recursive   # Destroys existing metadata (LVM, filesystems, etc.)
 
-      # EFI System Partition (UEFI-only target) -------------------------------
+      # EFI System Partition (600M typical) ----------------------------------
       - id: esp
         type: partition
         device: disk0
-        size: 1G
-        flag: boot   # Use 'boot' flag for widest curtin/firmware compatibility (acts as ESP)
-        number: 1
-        wipe: superblock         # Comment out + add preserve:true for reinstalls
-        # grub_device not required on ESP when disk already marked; avoids grub installing to partition under BIOS
-      - id: esp-format
+        size: 600M
+        flag: boot
+        wipe: superblock
+      - id: esp-fmt
         type: format
-        fstype: fat32
         volume: esp
+        fstype: fat32
 
-      # /boot (unencrypted ext4) ----------------------------------------------
+      # /boot (unencrypted) --------------------------------------------------
       - id: boot
         type: partition
         device: disk0
-        size: 2G
-        number: 2
-      - id: boot-format
+        size: 1G
+        wipe: superblock
+      - id: boot-fmt
         type: format
-        fstype: ext4
         volume: boot
+        fstype: ext4
 
-      # LVM PV partition (use rest - will host LUKS root)
-      - id: root-pv
+      # Encrypted PV partition (rest of disk) --------------------------------
+      - id: crypt-pv-part
         type: partition
         device: disk0
         size: -1
-        number: 3
         wipe: superblock
+
+      # LUKS container (full-root encryption) --------------------------------
+      - id: luks-root
+        type: dm_crypt
+        volume: crypt-pv-part
+        dm_name: luksroot
+        key: Testing   # Replace securely post-install / via TPM script
+
+      # LVM inside LUKS for root LV -----------------------------------------
       - id: vgroot
         type: lvm_volgroup
         name: vgroot
-        devices: [root-pv]
+        devices: [luks-root]
 
-      # LVM logical volume for OS root ---------------------------------------
       - id: lvroot
         type: lvm_partition
         name: lvroot
         volgroup: vgroot
-        size: -1                   # Consume full VG (no separate /home dataset)
-        wipe: superblock
+        size: -1
 
-      # LUKS on top of LV ------------------------------------------------------
-      - id: luks-root
-        type: dm_crypt
-        dm_name: luksroot
-        volume: lvroot
-        key: Testing   # Initial passphrase; rotated by postinstall script
-
-      # Format encrypted root --------------------------------------------------
-      - id: luks-root-fs
+      # Format root filesystem ------------------------------------------------
+      - id: root-fs
         type: format
+        volume: lvroot
         fstype: ext4
-        volume: luks-root
         label: ROOTFS
 
-      # Mount operations (order matters) --------------------------------------
+      # Mounts ---------------------------------------------------------------
       - id: mount-root
         type: mount
-        device: luks-root-fs
+        device: root-fs
         path: /
       - id: mount-boot
         type: mount
-        device: boot-format
+        device: boot-fmt
         path: /boot
       - id: mount-esp
         type: mount
-        device: esp-format
+        device: esp-fmt
         path: /boot/efi
 
   # (No separate /home LV; resides within encrypted root filesystem.)
