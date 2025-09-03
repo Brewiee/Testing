@@ -91,29 +91,26 @@ autoinstall:
     - curtin in-target --target=/target -- apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || echo cryptsetup/tpm2 install failed >> /root/autoinstall.log
     # Enroll TPM2 token (systemd-cryptenroll) and rebuild initramfs; no crypttab modification needed
     - |
-      curtin in-target --target=/target -- bash -c '
-        set -e
-        LOG=/root/autoinstall.log
-        echo "[tpm] enroll_start" >>$LOG
-        DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1)
-        if [ -z "$DEV" ]; then echo "[tpm] no_dev" >>$LOG; exit 0; fi
-        # Use PCR7 if EFI, else no PCR binding
-        if [ -d /sys/firmware/efi ]; then PCR_OPT="--tpm2-pcrs=7"; else PCR_OPT=""; fi
-        echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto $PCR_OPT --unlock-key-file=- "$DEV" >>$LOG 2>&1 || echo "[tpm] enroll_fail" >>$LOG
-        if cryptsetup luksDump "$DEV" | grep -qi tpm2; then
-          echo "[tpm] token_present" >>$LOG
-          SLOT=$(cryptsetup luksDump "$DEV" | awk '/Key Slot [0-9]+: ENABLED/{print $3; exit}' | tr -d ':')
-          if [ -n "$SLOT" ]; then
-            systemd-cryptenroll --wipe-slot="$SLOT" "$DEV" >>$LOG 2>&1 && echo "[tpm] wiped_slot_$SLOT" >>$LOG || echo "[tpm] wipe_fail_slot_$SLOT" >>$LOG
-          else
-            echo "[tpm] no_enabled_slot_found" >>$LOG
-          fi
-        else
-          echo "[tpm] token_missing" >>$LOG
-        fi
-        update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] update_initramfs_fail" >>$LOG
-        echo "[tpm] enroll_done" >>$LOG
-      '
+      cat <<'EOF' >/target/root/tpm-enroll.sh
+      #!/bin/bash
+      set -e
+      LOG=/root/autoinstall.log
+      echo "[tpm] start" >>$LOG
+      DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n 's/^ *device: *//p' | head -1)
+      if [ -z "$DEV" ]; then echo "[tpm] no_dev" >>$LOG; exit 0; fi
+      [ -d /sys/firmware/efi ] && PCR_OPT="--tpm2-pcrs=7" || PCR_OPT=""
+      echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto $PCR_OPT --unlock-key-file=- "$DEV" >>$LOG 2>&1 || echo "[tpm] enroll_fail" >>$LOG
+      if cryptsetup luksDump "$DEV" | grep -qi tpm2; then
+        echo "[tpm] token_present" >>$LOG
+        systemd-cryptenroll --wipe-slot=0 "$DEV" >>$LOG 2>&1 || echo "[tpm] wipe_fail_slot_0" >>$LOG
+      else
+        echo "[tpm] token_missing" >>$LOG
+      fi
+      update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] update_initramfs_fail" >>$LOG
+      echo "[tpm] done" >>$LOG
+      EOF
+      chmod 700 /target/root/tpm-enroll.sh
+      chroot /target /root/tpm-enroll.sh || true
   # Passphrase removed; TPM-only unlock in effect if wipe succeeded
     - curtin in-target --target=/target -- bash -c "echo '*** late done ***' >> /root/autoinstall.log"
 
