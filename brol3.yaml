@@ -52,14 +52,14 @@ autoinstall:
         grub_device: true
         name: disk0
         wipe: superblock-recursive   # Force full metadata wipe (clears prior LVM PV holding disk busy)
-  # No match selector: with a single physical disk present, curtin will bind this definition to it.
+  # No explicit match selector: assumes exactly one internal non-USB disk present.
 
       # EFI System Partition (UEFI-only target) -------------------------------
       - id: esp
         type: partition
         device: disk0
         size: 1G
-        flag: esp
+        flag: boot   # Use 'boot' flag for widest curtin/firmware compatibility (acts as ESP)
         number: 1
         wipe: superblock         # Comment out + add preserve:true for reinstalls
         # grub_device not required on ESP when disk already marked; avoids grub installing to partition under BIOS
@@ -142,6 +142,7 @@ autoinstall:
 
   # ----- Early Commands (run in installer env) -------------------------------
   early-commands:
+  - bash -c 'internal=$(lsblk -ndo NAME,TYPE,RM,TRAN | awk "$2==\"disk\" && $3==0 && $4!~/usb/{print $1}"); cnt=$(echo $internal | wc -w); if [ $cnt -ne 1 ]; then echo "ABORT: expected 1 internal non-usb disk, found $cnt: $internal" >&2; exit 1; fi'
   - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
 
   # ----- Late Commands (run in target root via curtin in-target) -------------
