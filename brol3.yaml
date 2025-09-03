@@ -49,10 +49,9 @@ autoinstall:
       - id: disk0
         type: disk
         ptable: gpt
-        grub_device: false
+        grub_device: true
         name: disk0
-        match:
-          ssd: true
+        match: { name: "sda" }   # VirtualBox: /dev/sda. Replace with a safer matcher for production.
 
       # EFI System Partition ---------------------------------------------------
       - id: esp
@@ -161,6 +160,53 @@ autoinstall:
   - curtin in-target --target=/target -- bash -c "apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log"
   - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi"
   - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
+  # --- TPM auto-enrollment (LUKS-on-LVM) ------------------------------------
+  - curtin in-target --target=/target apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || true
+  - |
+    cat <<'EOF' >/target/usr/local/sbin/fde-tpm-enroll.sh
+    #!/bin/bash
+    set -euo pipefail
+    LOG=/root/autoinstall.log
+    echo "[tpm] enroll_start" >> $LOG
+    DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+    if [ -z "$DEV" ]; then echo "[tpm] no_crypto_device" >>$LOG; exit 0; fi
+    echo "[tpm] dev=$DEV" >>$LOG
+    # Enroll token (no PCRs for widest compatibility / VM environments)
+    if echo -n Testing | systemd-cryptenroll --tpm2-device=auto --unlock-key-file=/dev/stdin "$DEV" >>$LOG 2>&1; then
+      echo "[tpm] enroll_success" >>$LOG
+    else
+      echo "[tpm] enroll_failed" >>$LOG; exit 0
+    fi
+    if cryptsetup luksDump "$DEV" 2>/dev/null | grep -qi systemd-tpm2; then
+      echo "[tpm] token_present" >>$LOG
+      # Ensure crypttab includes tpm2-device=auto
+      if grep -q '^luksroot' /etc/crypttab; then
+        awk 'BEGIN{d=0} /^luksroot/ && !d {u=$2;k=$3;o=$4; if(k==""||k=="-"||k=="none") k="none"; if(o=="") o="luks"; if(o!~/tpm2-device=auto/) o=o",tpm2-device=auto"; print "luksroot "u" "k" "o; d=1; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab && echo "[tpm] crypttab_updated" >>$LOG || echo "[tpm] crypttab_update_failed" >>$LOG
+      else
+        echo "[tpm] crypttab_missing" >>$LOG
+      fi
+      update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] initramfs_update_fail" >>$LOG
+      echo "[tpm] enroll_done" >>$LOG
+    else
+      echo "[tpm] token_absent" >>$LOG
+    fi
+    EOF
+  - chmod 700 /target/usr/local/sbin/fde-tpm-enroll.sh
+  - curtin in-target --target=/target -- /usr/local/sbin/fde-tpm-enroll.sh || true
+  - |
+    cat <<'EOF' >/target/usr/local/sbin/fde-tpm-finalize.sh
+    #!/bin/bash
+    # Remove original passphrase slot (default slot 0) after confirming unattended boot works.
+    set -euo pipefail
+    DEV=${1:-$(blkid -t TYPE=crypto_LUKS -o device | head -1)}
+    if [ -z "$DEV" ]; then echo "No LUKS device found"; exit 1; fi
+    if ! cryptsetup luksDump "$DEV" | grep -qi systemd-tpm2; then echo "No TPM2 token present"; exit 2; fi
+    SLOT=${WIPE_SLOT:-0}
+    systemd-cryptenroll --wipe-slot=$SLOT "$DEV"
+    echo "Wiped keyslot $SLOT. Reboot to verify."
+    EOF
+  - chmod 700 /target/usr/local/sbin/fde-tpm-finalize.sh
+  - curtin in-target --target=/target -- bash -c "echo '[tpm] automation_added' >> /root/autoinstall.log"
 
   # ----- User Data / OEM Config ----------------------------------------------
   timezone: Europe/Brussels
