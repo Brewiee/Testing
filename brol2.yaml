@@ -123,16 +123,37 @@ autoinstall:
       echo "[tpm] pcr_opt='${PCR_OPT}'" >>$LOG
       # Enroll token
       if echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto $PCR_OPT --unlock-key-file=- "$DEV" >>$LOG 2>&1; then
-        echo "[tpm] enroll_ok" >>$LOG
+        echo "[tpm] enroll_ok_primary" >>$LOG
       else
-        echo "[tpm] enroll_fail" >>$LOG
+        echo "[tpm] enroll_fail_primary (retry no PCR)" >>$LOG
+        # Retry without any PCR binding (VirtualBox / non-EFI often needs this)
+        if echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto --unlock-key-file=- "$DEV" >>$LOG 2>&1; then
+          echo "[tpm] enroll_ok_fallback" >>$LOG
+        else
+          echo "[tpm] enroll_fail_fallback" >>$LOG
+        fi
       fi
-      if cryptsetup luksDump "$DEV" 2>/dev/null | grep -qi tpm2; then
+      TOKEN_FLAG=missing
+      if cryptsetup luksDump "$DEV" 2>/dev/null | grep -qi 'systemd-tpm2'; then
         echo "[tpm] token_present" >>$LOG
+        TOKEN_FLAG=present
       else
         echo "[tpm] token_missing" >>$LOG
       fi
-      # Keep passphrase slot for now (wipe later after manual verification)
+      # If token present, append tpm2-device=auto to crypttab entry (if not already) so initramfs tries TPM early
+      if [ "$TOKEN_FLAG" = present ]; then
+        if grep -q '^luksroot' /etc/crypttab; then
+          if ! grep -q 'tpm2-device=auto' /etc/crypttab; then
+            sed -i "s/^luksroot[[:space:]].*/& tpm2-device=auto/" /etc/crypttab || echo "[tpm] crypttab_mod_fail" >>$LOG
+            echo "[tpm] crypttab_modified" >>$LOG
+          else
+            echo "[tpm] crypttab_already_had_tpm2" >>$LOG
+          fi
+        else
+          echo "[tpm] crypttab_missing_entry" >>$LOG
+        fi
+      fi
+      # Keep passphrase slot for now (wipe after manual verification)
       update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] update_initramfs_fail" >>$LOG
       echo "[tpm] done" >>$LOG
       EOF
