@@ -43,7 +43,7 @@ autoinstall:
   shutdown: reboot
 
   # ----- Storage Layout -------------------------------------------------------
-  # Disk model: [ESP][BOOT][LVM PV -> VG -> LV(root)->LUKS->ext4 /]
+  # Disk model: [ESP][BOOT][LUKS (dm_crypt over partition) -> VG -> LV(root) -> ext4 /]
   # First install: leave preserve off to allow creation. Reinstall: add preserve:true where needed.
   storage:
     config:
@@ -60,6 +60,7 @@ autoinstall:
         device: disk0
         size: 600M
         flag: boot
+        grub_device: true
         wipe: superblock
       - id: esp-fmt
         type: format
@@ -186,7 +187,7 @@ autoinstall:
       echo "[tpm] token_present" >>$LOG
       # Ensure crypttab includes tpm2-device=auto
       if grep -q '^luksroot' /etc/crypttab; then
-        awk 'BEGIN{d=0} /^luksroot/ && !d {u=$2;k=$3;o=$4; if(k==""||k=="-"||k=="none") k="none"; if(o=="") o="luks"; if(o!~/tpm2-device=auto/) o=o",tpm2-device=auto"; print "luksroot "u" "k" "o; d=1; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab && echo "[tpm] crypttab_updated" >>$LOG || echo "[tpm] crypttab_update_failed" >>$LOG
+        awk 'BEGIN{d=0} /^luksroot/ && !d {u=$2;k=$3;o=$4; if(k==""||k=="-"||k=="none") k="none"; if(o=="") o="luks"; if(o!~/tpm2-device=auto/) o=o",tpm2-device=auto"; if(o!~/discard/) o=o",discard"; print "luksroot "u" "k" "o; d=1; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab && echo "[tpm] crypttab_updated" >>$LOG || echo "[tpm] crypttab_update_failed" >>$LOG
       else
         echo "[tpm] crypttab_missing" >>$LOG
       fi
@@ -212,6 +213,10 @@ autoinstall:
     EOF
   - chmod 700 /target/usr/local/sbin/fde-tpm-finalize.sh
   - curtin in-target --target=/target -- bash -c "echo '[tpm] automation_added' >> /root/autoinstall.log"
+  # SSD / discard optimizations ----------------------------------------------
+  - curtin in-target --target=/target -- bash -c "sed -i 's/^ *#* *issue_discards *=.*/    issue_discards = 1/' /etc/lvm/lvm.conf || true"
+  - curtin in-target --target=/target -- systemctl enable fstrim.timer || true
+  - curtin in-target --target=/target -- bash -c "cp /etc/fstab /etc/fstab.orig; awk '$2==\"/\"{ if($4!~/noatime/){$4=$4",noatime,lazytime"} } {print}' /etc/fstab > /etc/fstab.new && mv /etc/fstab.new /etc/fstab || true"
 
   # ----- User Data / OEM Config ----------------------------------------------
   timezone: Europe/Brussels
