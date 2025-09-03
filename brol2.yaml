@@ -1,0 +1,128 @@
+#cloud-config
+autoinstall:
+  version: 1
+
+  locale: en_US.UTF-8
+  keyboard:
+    layout: be
+    variant: nodeadkeys
+
+  identity:
+    hostname: p250253.vito.local
+    username: pcinstall
+    password: "$6$rounds=4096$9SgMJXq8AVq46PUs$.I/aiO8U.o9pfYOw7CrpoXCduJTWToE9usOASpK9aqUcNYMvEAQcZ1B5OamhbR2FEbQOdsrgVhnEneKwXczSp1"
+
+  network:
+    version: 2
+    ethernets:
+      all:
+        match: {name: "*"}
+        dhcp4: true
+        dhcp6: false
+        set-name: eth0
+
+  updates: security
+  apt:
+    primary:
+      - arches: [amd64]
+        uri: http://archive.ubuntu.com/ubuntu
+
+  storage:
+    config:
+      - id: disk0
+        type: disk
+        ptable: msdos
+        match:
+          removable: false
+        grub_device: true
+      - id: boot
+        type: partition
+        device: disk0
+        size: 1G
+        flag: boot
+        number: 1
+        wipe: superblock
+      - id: boot-format
+        type: format
+        fstype: ext4
+        volume: boot
+      - id: crypt-part
+        type: partition
+        device: disk0
+        size: -1
+        number: 2
+        wipe: superblock
+      - id: luks-root
+        type: dm_crypt
+        dm_name: luksroot
+        volume: crypt-part
+        key: TempInitialPass   # Temporary setup passphrase; removed after TPM2 token enrollment for TPM-only unlock
+      - id: luks-root-fs
+        type: format
+        fstype: ext4
+        volume: luks-root
+        label: ROOTFS
+      - id: mount-root
+        type: mount
+        device: luks-root-fs
+        path: /
+      - id: mount-boot
+        type: mount
+        device: boot-format
+        path: /boot
+
+  ssh:
+    install-server: false
+    authorized-keys: []
+
+  early-commands:
+    - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
+
+  late-commands:
+    - curtin in-target --target=/target -- bash -c "echo '*** late start ***' > /root/autoinstall.log"
+    - curtin in-target --target=/target -- apt-get update || true
+    - curtin in-target --target=/target -- apt-get -y install curl gnupg software-properties-common || true
+    - curtin in-target --target=/target -- bash -c 'mkdir -p /etc/apt/keyrings'
+    - curtin in-target --target=/target -- bash -c 'curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg'
+    - curtin in-target --target=/target -- bash -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft.list'
+    - curtin in-target --target=/target -- apt-get update || true
+    - curtin in-target --target=/target -- bash -c 'apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log'
+    - curtin in-target --target=/target -- bash -c 'if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi'
+    - curtin in-target --target=/target -- apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || echo cryptsetup/tpm2 install failed >> /root/autoinstall.log
+    # Enroll TPM2 token (systemd-cryptenroll) and rebuild initramfs; no crypttab modification needed
+    - |
+      curtin in-target --target=/target -- bash -c '
+        set -e
+        LOG=/root/autoinstall.log
+        echo "[tpm] enroll_start" >>$LOG
+        DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n "s/^ *device: *//p" | head -1)
+        if [ -z "$DEV" ]; then echo "[tpm] no_dev" >>$LOG; exit 0; fi
+        # Use PCR7 if EFI, else no PCR binding
+        if [ -d /sys/firmware/efi ]; then PCR_OPT="--tpm2-pcrs=7"; else PCR_OPT=""; fi
+        echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto $PCR_OPT --unlock-key-file=- "$DEV" >>$LOG 2>&1 || echo "[tpm] enroll_fail" >>$LOG
+        if cryptsetup luksDump "$DEV" | grep -qi tpm2; then
+          echo "[tpm] token_present" >>$LOG
+          SLOT=$(cryptsetup luksDump "$DEV" | awk '/Key Slot [0-9]+: ENABLED/{print $3; exit}' | tr -d ':')
+          if [ -n "$SLOT" ]; then
+            systemd-cryptenroll --wipe-slot="$SLOT" "$DEV" >>$LOG 2>&1 && echo "[tpm] wiped_slot_$SLOT" >>$LOG || echo "[tpm] wipe_fail_slot_$SLOT" >>$LOG
+          else
+            echo "[tpm] no_enabled_slot_found" >>$LOG
+          fi
+        else
+          echo "[tpm] token_missing" >>$LOG
+        fi
+        update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] update_initramfs_fail" >>$LOG
+        echo "[tpm] enroll_done" >>$LOG
+      '
+  # Passphrase removed; TPM-only unlock in effect if wipe succeeded
+    - curtin in-target --target=/target -- bash -c "echo '*** late done ***' >> /root/autoinstall.log"
+
+  timezone: Europe/Brussels
+  user-data:
+    disable_root: true
+    package_update: false
+    package_upgrade: false
+    runcmd:
+      - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
+
+# After install: verify unattended boot, then rotate user password & remove passwordless sudo.
