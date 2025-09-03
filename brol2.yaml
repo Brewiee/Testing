@@ -96,22 +96,49 @@ autoinstall:
       set -e
       LOG=/root/autoinstall.log
       echo "[tpm] start" >>$LOG
-      DEV=$(cryptsetup status luksroot 2>/dev/null | sed -n 's/^ *device: *//p' | head -1)
+      # Try direct cryptsetup status (mapper name expected)
+      MAPPER_NAME=luksroot
+      DEV=$(cryptsetup status "$MAPPER_NAME" 2>/dev/null | sed -n 's/^ *device: *//p' | head -1)
+      if [ -z "$DEV" ]; then
+        # Derive from root mount
+        ROOT_SRC=$(findmnt -no SOURCE / || true)
+        echo "[tpm] root_source=$ROOT_SRC" >>$LOG
+        if [[ "$ROOT_SRC" == /dev/mapper/* ]]; then
+          DMNODE=${ROOT_SRC#/dev/}
+          # Find underlying physical partition
+          UNDER=/sys/class/block/${DMNODE}/slaves
+          if [ -d "$UNDER" ]; then
+            DEV=$(readlink -f "$UNDER"/* 2>/dev/null | head -1)
+          fi
+        fi
+      fi
+      if [ -z "$DEV" ]; then
+        # Fallback: first crypto_LUKS device
+        DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+      fi
       if [ -z "$DEV" ]; then echo "[tpm] no_dev" >>$LOG; exit 0; fi
+      echo "[tpm] dev=$DEV" >>$LOG
+      # Decide PCR policy
       [ -d /sys/firmware/efi ] && PCR_OPT="--tpm2-pcrs=7" || PCR_OPT=""
-      echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto $PCR_OPT --unlock-key-file=- "$DEV" >>$LOG 2>&1 || echo "[tpm] enroll_fail" >>$LOG
-      if cryptsetup luksDump "$DEV" | grep -qi tpm2; then
+      echo "[tpm] pcr_opt='${PCR_OPT}'" >>$LOG
+      # Enroll token
+      if echo -n TempInitialPass | systemd-cryptenroll --tpm2-device=auto $PCR_OPT --unlock-key-file=- "$DEV" >>$LOG 2>&1; then
+        echo "[tpm] enroll_ok" >>$LOG
+      else
+        echo "[tpm] enroll_fail" >>$LOG
+      fi
+      if cryptsetup luksDump "$DEV" 2>/dev/null | grep -qi tpm2; then
         echo "[tpm] token_present" >>$LOG
-        systemd-cryptenroll --wipe-slot=0 "$DEV" >>$LOG 2>&1 || echo "[tpm] wipe_fail_slot_0" >>$LOG
       else
         echo "[tpm] token_missing" >>$LOG
       fi
+      # Keep passphrase slot for now (wipe later after manual verification)
       update-initramfs -u -k all >>$LOG 2>&1 || echo "[tpm] update_initramfs_fail" >>$LOG
       echo "[tpm] done" >>$LOG
       EOF
       chmod 700 /target/root/tpm-enroll.sh
       chroot /target /root/tpm-enroll.sh || true
-  # Passphrase removed; TPM-only unlock in effect if wipe succeeded
+  # Passphrase retained for fallback; wipe after confirming unattended boot
     - curtin in-target --target=/target -- bash -c "echo '*** late done ***' >> /root/autoinstall.log"
 
   timezone: Europe/Brussels
