@@ -51,6 +51,7 @@ autoinstall:
         ptable: gpt
         grub_device: true
         name: disk0
+        wipe: superblock-recursive   # Force full metadata wipe (clears prior LVM PV holding disk busy)
         match: { name: "sda" }   # VirtualBox: /dev/sda. Replace with a safer matcher for production.
 
       # (Optional dual-mode) BIOS Boot Partition (needed only if system boots in Legacy/CSM mode on GPT)
@@ -150,6 +151,8 @@ autoinstall:
 
   # ----- Early Commands (run in installer env) -------------------------------
   early-commands:
+  # Extra defensive wipe to clear leftover signatures that can trigger NotExclusiveError
+  - bash -c 'disk=$(lsblk -ndo NAME,TYPE | awk "$2==\"disk\"{print $1; exit}"); [ -n "$disk" ] && wipefs -a "/dev/$disk" || true'
     - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
 
   # ----- Late Commands (run in target root via curtin in-target) -------------
