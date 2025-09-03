@@ -52,7 +52,7 @@ autoinstall:
         grub_device: true
         name: disk0
         wipe: superblock-recursive   # Force full metadata wipe (clears prior LVM PV holding disk busy)
-        match: { name: "sda" }   # VirtualBox: /dev/sda. Replace with a safer matcher for production.
+  # No match selector: with a single physical disk present, curtin will bind this definition to it.
 
       # (Optional dual-mode) BIOS Boot Partition (needed only if system boots in Legacy/CSM mode on GPT)
       # Enables GRUB core.img embedding when firmware is not UEFI. Safe to keep; tiny 1MB, no filesystem.
@@ -153,14 +153,14 @@ autoinstall:
   early-commands:
   # Extra defensive wipe to clear leftover signatures that can trigger NotExclusiveError
   - bash -c 'disk=$(lsblk -ndo NAME,TYPE | awk "$2==\"disk\"{print $1; exit}"); [ -n "$disk" ] && wipefs -a "/dev/$disk" || true'
-    - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
+  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
 
   # ----- Late Commands (run in target root via curtin in-target) -------------
   # Useful for: encrypting datasets later, provisioning dotfiles, hardening.
   late-commands:
-    # (Polish) Early LVM activation hook to support LUKS-on-LVM layout on first boot
+  # (Polish) Early LVM activation hook to support LUKS-on-LVM layout on first boot
   - curtin in-target --target=/target -- bash -c 'mkdir -p /etc/initramfs-tools/scripts/local-top; printf "%s\n" "#!/bin/sh" "PREREQ=\"\"" "prereqs(){ echo \"$PREREQ\"; }" "case \"$1\" in" "  prereqs) prereqs; exit 0 ;;" "esac" ". /scripts/functions" "modprobe dm_mod 2>/dev/null || true" "if command -v lvm >/dev/null 2>&1; then" "  lvm pvscan --cache 2>/dev/null || true" "  lvm vgchange -ay 2>/dev/null || true" "fi" "exit 0" > /etc/initramfs-tools/scripts/local-top/10-activate-lvm; chmod 755 /etc/initramfs-tools/scripts/local-top/10-activate-lvm'
-    # (Polish) Reset machine-id for image uniqueness
+  # (Polish) Reset machine-id for image uniqueness
   - curtin in-target --target=/target -- bash -c "truncate -s0 /etc/machine-id; rm -f /var/lib/dbus/machine-id || true; ln -sf /etc/machine-id /var/lib/dbus/machine-id"
   - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
   - curtin in-target --target=/target apt-get update || true
