@@ -27,11 +27,13 @@ autoinstall:
   network:
     version: 2
     ethernets:
-      all:
-        match: {name: "*"}
+      lan:
+        # Match any ethernet interface starting with en (modern predictable names)
+        match:
+          name: "en*"
         dhcp4: true
         dhcp6: false
-  optional: true
+        optional: true
 
   # ----- Updates / Extras -----------------------------------------------------
   updates: security
