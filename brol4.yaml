@@ -1,0 +1,267 @@
+#cloud-config
+# Ubuntu 24.04 Autoinstall template (Minimal Desktop + LVM + LUKS Root)                    
+# Generated: 2025-08-29
+# NOTE: Review every placeholder (SEARCH: CHANGE_ME) before use.
+# This file is an original template inspired by public guidance; not a verbatim copy.
+
+autoinstall:
+  version: 1
+  interactive-sections: []  # Explicitly declare fully non-interactive
+  # source removed (desktop flavor ISO provides its own); re-add if needed with a valid id
+  # ----- Locale / Keyboard ---------------------------------------------------
+  locale: en_US.UTF-8
+  keyboard:
+    layout: be
+    variant: nodeadkeys  # Belgian Period layout
+
+  # ----- Identity -------------------------------------------------------------
+  # Password MUST be a crypt(3) hash (e.g. mkpasswd --method=SHA-512). Do NOT store clear text.
+  identity:
+    hostname: p250253.vito.local
+    username: pcinstall
+    # Password for user pcinstall (hash of provided clear text). Rotate after deployment.
+    password: "$6$rounds=4096$9SgMJXq8AVq46PUs$.I/aiO8U.o9pfYOw7CrpoXCduJTWToE9usOASpK9aqUcNYMvEAQcZ1B5OamhbR2FEbQOdsrgVhnEneKwXczSp1"
+
+  # ----- Network --------------------------------------------------------------
+  # Basic DHCP on all interfaces. Customize for static if needed.
+  network:
+    version: 2
+    ethernets:
+      lan:
+        # Match any ethernet interface starting with en (modern predictable names)
+        match:
+          name: "en*"
+        dhcp4: true
+        dhcp6: false
+        optional: true
+
+  # ----- Updates / Extras -----------------------------------------------------
+  updates: security
+  apt:
+    primary:
+      - arches: [amd64]
+        uri: http://archive.ubuntu.com/ubuntu
+
+  shutdown: reboot
+
+  # ----- Storage Layout -------------------------------------------------------
+  # Disk model: [ESP][BOOT][LUKS (dm_crypt over partition) -> VG -> LV(root) -> ext4 /]
+  # First install: leave preserve off to allow creation. Reinstall: add preserve:true where needed.
+  storage:
+    config:
+      # Primary disk (adjust path if not nvme0n1)
+      - id: disk0
+        type: disk
+        ptable: gpt
+        path: /dev/nvme0n1
+        wipe: superblock-recursive   # Destroys existing metadata (LVM, filesystems, etc.)
+
+      # EFI System Partition (600M typical) ----------------------------------
+      - id: esp
+        type: partition
+        device: disk0
+        size: 600M
+        flag: boot
+        grub_device: true
+        wipe: superblock
+      - id: esp-fmt
+        type: format
+        volume: esp
+        fstype: fat32
+
+      # /boot (unencrypted) --------------------------------------------------
+      - id: boot
+        type: partition
+        device: disk0
+        size: 1G
+        wipe: superblock
+      - id: boot-fmt
+        type: format
+        volume: boot
+        fstype: ext4
+
+      # Encrypted PV partition (rest of disk) --------------------------------
+      - id: crypt-pv-part
+        type: partition
+        device: disk0
+        size: -1
+        wipe: superblock
+
+      # LUKS container (full-root encryption) --------------------------------
+      - id: luks-root
+        type: dm_crypt
+        volume: crypt-pv-part
+        dm_name: luksroot
+        key: Testing   # Replace securely post-install / via TPM script
+
+      # LVM inside LUKS for root LV -----------------------------------------
+      - id: vgroot
+        type: lvm_volgroup
+        name: vgroot
+        devices: [luks-root]
+
+      - id: lvroot
+        type: lvm_partition
+        name: lvroot
+        volgroup: vgroot
+        size: -1
+
+      # Format root filesystem ------------------------------------------------
+      - id: root-fs
+        type: format
+        volume: lvroot
+        fstype: ext4
+        label: ROOTFS
+
+      # Mounts ---------------------------------------------------------------
+      - id: mount-root
+        type: mount
+        device: root-fs
+        path: /
+      - id: mount-boot
+        type: mount
+        device: boot-fmt
+        path: /boot
+      - id: mount-esp
+        type: mount
+        device: esp-fmt
+        path: /boot/efi
+
+  # (No separate /home LV; resides within encrypted root filesystem.)
+
+  # ----- Users & SSH ----------------------------------------------------------
+  ssh:
+    install-server: false
+    authorized-keys: []            # Add keys if enabling SSH during install.
+
+  # ----- Packages -------------------------------------------------------------
+  packages:
+    - curl
+
+  snaps: []
+
+  # ----- Early Commands (run in installer env) -------------------------------
+  early-commands:
+  - |
+    internal=$(lsblk -ndo NAME,TYPE,RM,TRAN | awk '$2=="disk" && $3==0 && $4!~/usb/{print $1}')
+    cnt=$(echo $internal | wc -w)
+    if [ $cnt -ne 1 ]; then
+      echo "ABORT: expected 1 internal non-usb disk, found $cnt: $internal" >&2
+      exit 1
+    fi
+  - |
+    # Wait for at least one NIC with carrier before proceeding (up to 60s)
+    for i in $(seq 1 30); do
+      if ip link show | grep -q 'state UP'; then echo "net ok"; break; fi
+      sleep 2
+    done
+  - sed -i "s/^#*PermitRootLogin.*/PermitRootLogin no/" /etc/ssh/sshd_config || true
+
+  # ----- Late Commands (run in target root via curtin in-target) -------------
+  # Useful for: encrypting datasets later, provisioning dotfiles, hardening.
+  late-commands:
+  # (Polish) Early LVM activation hook to support LUKS-on-LVM layout on first boot
+  - curtin in-target --target=/target -- bash -c 'mkdir -p /etc/initramfs-tools/scripts/local-top; printf "%s\n" "#!/bin/sh" "PREREQ=\"\"" "prereqs(){ echo \"$PREREQ\"; }" "case \"$1\" in" "  prereqs) prereqs; exit 0 ;;" "esac" ". /scripts/functions" "modprobe dm_mod 2>/dev/null || true" "if command -v lvm >/dev/null 2>&1; then" "  lvm pvscan --cache 2>/dev/null || true" "  lvm vgchange -ay 2>/dev/null || true" "fi" "exit 0" > /etc/initramfs-tools/scripts/local-top/10-activate-lvm; chmod 755 /etc/initramfs-tools/scripts/local-top/10-activate-lvm'
+  # (Polish) Reset machine-id for image uniqueness
+  - curtin in-target --target=/target -- bash -c "truncate -s0 /etc/machine-id; rm -f /var/lib/dbus/machine-id || true; ln -sf /etc/machine-id /var/lib/dbus/machine-id"
+  - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
+  - curtin in-target --target=/target apt-get update || true
+  - curtin in-target --target=/target apt-get -y install curl gnupg software-properties-common || true
+  - curtin in-target --target=/target -- bash -c "mkdir -p /etc/apt/keyrings"
+  - curtin in-target --target=/target -- bash -c "curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg"
+  - curtin in-target --target=/target -- bash -c "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main' > /etc/apt/sources.list.d/microsoft.list"
+  - curtin in-target --target=/target apt-get update || true
+  - curtin in-target --target=/target -- bash -c "apt-get install -y mdatp || echo mdatp install failed >> /root/autoinstall.log"
+  - curtin in-target --target=/target -- bash -c "if command -v mdatp >/dev/null 2>&1; then mdatp --register --tenant-id 9e2777ed-8237-4ab9-9278-2c144d6f6da3 || echo register failed >> /root/autoinstall.log; fi"
+  - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
+  # --- Post-install Clevis TPM2 binding script (preferred over systemd token) ---
+  - |
+    cat <<'EOF' >/target/root/clevis-postinstall.sh
+    #!/bin/bash
+    # clevis-postinstall.sh: Bind LUKS root to TPM2 via Clevis for unattended unlock.
+    # Safe flow: runs once on first boot; leaves original passphrase until admin confirms two successful unattended boots.
+    set -euo pipefail
+    LOG=/root/clevis-postinstall.log
+    echo "[clevis] start" | tee -a "$LOG"
+    export DEBIAN_FRONTEND=noninteractive
+    # Install required packages (idempotent)
+    if ! command -v clevis >/dev/null 2>&1; then
+      apt-get update -y >>"$LOG" 2>&1 || echo "[clevis] apt_update_failed" | tee -a "$LOG"
+      apt-get install -y clevis clevis-luks clevis-initramfs clevis-tpm2 tpm2-tools cryptsetup-bin >>"$LOG" 2>&1 || echo "[clevis] pkg_install_failed" | tee -a "$LOG"
+    fi
+    # Detect LUKS root device (first crypto_LUKS backing the active root mapper)
+    DEV=$(lsblk -no TYPE,PATH,MOUNTPOINT | awk '$1=="crypt" && $3=="/" {print $2}' | xargs -r -I{} lsblk -no PKNAME,PATH {} | awk 'NR==1{print "/dev/"$1"p3"}')
+    # Fallback generic detection if above heuristic fails
+    if [ -z "${DEV:-}" ] || [ ! -b "$DEV" ]; then
+      DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+    fi
+    if [ -z "${DEV:-}" ] || [ ! -b "$DEV" ]; then
+      echo "[clevis] no_luks_device_found" | tee -a "$LOG"; exit 0
+    fi
+    echo "[clevis] device=$DEV" | tee -a "$LOG"
+    # If already bound, exit quietly
+    if clevis luks list -d "$DEV" >/dev/null 2>&1; then
+      echo "[clevis] already_bound" | tee -a "$LOG"; systemctl disable clevis-luks-bind.service >/dev/null 2>&1 || true; exit 0
+    fi
+    # Sanitize /etc/crypttab: remove legacy tpm2-device option; ensure discard present
+    if grep -q '^luksroot' /etc/crypttab; then
+      sed -i -E 's/,?tpm2-device=[^,[:space:]]*//g' /etc/crypttab
+      # Ensure 'discard' option present (non-destructive)
+      awk 'BEGIN{OFS=" "} /^luksroot/ { split($0,f,/[ \t]/); opts=f[4]; if(opts==""||opts=="-"||opts=="none") opts="luks"; if(opts!~/luks/) opts="luks,"opts; if(opts!~/discard/) opts=opts",discard"; gsub(/,,+/,",",opts); print f[1],f[2],(f[3]==""?"none":f[3]),opts; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
+      echo "[clevis] crypttab_normalized" | tee -a "$LOG"
+    else
+      echo "[clevis] crypttab_entry_missing" | tee -a "$LOG"
+    fi
+    # Obtain passphrase: env FDE_PASS overrides; else fallback to static 'Testing' (replace in production)
+    PASSPHRASE=${FDE_PASS:-Testing}
+    if [ -z "$PASSPHRASE" ]; then echo "[clevis] empty_passphrase_abort" | tee -a "$LOG"; exit 1; fi
+    # Perform binding (unrestricted PCRs first; tighten later with PCR policy once validated)
+    echo -n "$PASSPHRASE" | clevis luks bind -d "$DEV" tpm2 '{}' -y >>"$LOG" 2>&1 && echo "[clevis] bind_ok" | tee -a "$LOG" || {
+      echo "[clevis] bind_failed" | tee -a "$LOG"; exit 1; }
+    # Update initramfs so clevis hook is included
+    update-initramfs -u -k all >>"$LOG" 2>&1 || echo "[clevis] initramfs_update_failed" | tee -a "$LOG"
+    # Record keyslots for operator review
+    cryptsetup luksDump "$DEV" 2>/dev/null | awk '/Keyslot [0-9]+: LUKS2/ {print}' >>"$LOG" || true
+    echo "[clevis] next_steps: reboot twice to validate unattended unlock; then remove original passphrase slot with 'cryptsetup luksKillSlot $DEV <slot>'" | tee -a "$LOG"
+    systemctl disable clevis-luks-bind.service >/dev/null 2>&1 || true
+    echo "[clevis] done" | tee -a "$LOG"
+    EOF
+  - chmod 700 /target/root/clevis-postinstall.sh
+  - |
+    cat <<'EOF' >/target/etc/systemd/system/clevis-luks-bind.service
+    [Unit]
+    Description=One-time Clevis TPM2 binding for LUKS root
+    After=multi-user.target
+    ConditionPathExists=/root/clevis-postinstall.sh
+
+    [Service]
+    Type=oneshot
+    ExecStart=/root/clevis-postinstall.sh
+    RemainAfterExit=no
+
+    [Install]
+    WantedBy=multi-user.target
+    EOF
+  - curtin in-target --target=/target systemctl enable clevis-luks-bind.service || true
+  - curtin in-target --target=/target -- bash -c "echo '[clevis] script_deployed' >> /root/autoinstall.log"
+  # SSD / discard optimizations ----------------------------------------------
+  - curtin in-target --target=/target -- bash -c "sed -i 's/^ *#* *issue_discards *=.*/    issue_discards = 1/' /etc/lvm/lvm.conf || true"
+  - curtin in-target --target=/target -- systemctl enable fstrim.timer || true
+  - curtin in-target --target=/target -- bash -c "cp /etc/fstab /etc/fstab.orig; awk '$2==\"/\"{ if($4!~/noatime/){$4=$4",noatime,lazytime"} } {print}' /etc/fstab > /etc/fstab.new && mv /etc/fstab.new /etc/fstab || true"
+
+  # ----- User Data / OEM Config ----------------------------------------------
+  timezone: Europe/Brussels
+  # Permit passwordless sudo for initial bootstrap (tighten post-install)
+  user-data:
+    disable_root: true
+    package_update: false
+    package_upgrade: false
+    runcmd:
+      - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
+
+
+# ------------------- Post-Install Recommendations -----------------------------
+# 1. Change LUKS passphrase: cryptsetup luksChangeKey /dev/mapper/vgroot-lvroot
+# 2. Remove passwordless sudo: rm /etc/sudoers.d/90-cloud-init-users
+# 3. Run updates & verify Defender registration.
+# -----------------------------------------------------------------------------
