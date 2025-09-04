@@ -1,3 +1,4 @@
+#THIS ONE WORKS
 #cloud-config
 # Ubuntu 24.04 Autoinstall template (Minimal Desktop + LVM + LUKS Root)                    
 # Generated: 2025-08-29
