@@ -4,7 +4,6 @@
 
 autoinstall:
   version: 1
-  interactive-sections: []
 
   locale: en_US.UTF-8
   keyboard:
