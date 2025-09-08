@@ -1,6 +1,6 @@
 ##cloud-config
-## Clean rebuilt Ubuntu 24.04 Autoinstall: LUKS2 -> LVM -> ext4 with TPM2 Clevis auto-unlock
-## REPLACE passphrase 'Testing' before production.
+## Fresh rebuilt Ubuntu 24.04 Autoinstall: LUKS2 -> LVM -> ext4 with TPM2 Clevis auto-unlock.
+## WARNING: Replace passphrase 'Testing' before production use.
 
 autoinstall:
   version: 1
@@ -117,7 +117,7 @@ autoinstall:
     - curtin in-target --target=/target apt-get update || true
     - curtin in-target --target=/target apt-get -y install clevis clevis-luks clevis-initramfs clevis-tpm2 tpm2-tools cryptsetup-bin || true
     - |
-      curtin in-target --target=/target -- bash -c 'cat > /root/clevis-install-bind.sh <<"EOS"
+      curtin in-target --target=/target -- bash -c 'cat > /root/clevis-install-bind.sh <<"EOF"
       #!/bin/bash
       set -euo pipefail
       LOG=/root/clevis-install-bind.log
@@ -148,12 +148,12 @@ autoinstall:
       else
         echo "[install-bind] tpm_not_ready" | tee -a "$LOG"
       fi
-      EOS'
+      EOF'
     - curtin in-target --target=/target chmod 700 /root/clevis-install-bind.sh
     - curtin in-target --target=/target -- bash -c "/root/clevis-install-bind.sh || echo install_bind_script_failed >> /root/autoinstall.log"
     - curtin in-target --target=/target -- bash -c "[ -f /root/clevis-install-bind.log ] && chmod 600 /root/clevis-install-bind.log || true"
     - |
-      curtin in-target --target=/target -- bash -c 'cat > /root/tpm-clevis-bind.sh <<"EOS"
+      curtin in-target --target=/target -- bash -c 'cat > /root/tpm-clevis-bind.sh <<"EOF"
       #!/bin/bash
       set -euo pipefail
       LOG=/root/tpm-clevis-bind.log
@@ -182,11 +182,11 @@ autoinstall:
       cryptsetup luksDump "$DEV" | awk '/Keyslot [0-9]+:/' >>"$LOG" || true
       echo "[bind] done" | tee -a "$LOG"
       systemctl disable tpm-clevis-bind.service >/dev/null 2>&1 || true
-      EOS'
+      EOF'
     - |
-      curtin in-target --target=/target -- bash -c 'cat > /etc/systemd/system/tpm-clevis-bind.service <<EOF
+      curtin in-target --target=/target -- bash -c "cat > /etc/systemd/system/tpm-clevis-bind.service <<'EOF'
       [Unit]
-      Description=One-time TPM Clevis LUKS bind
+      Description=One-time TPM Clevis LUKS bind (first boot fallback)
       After=multi-user.target
       ConditionPathExists=/root/tpm-clevis-bind.sh
       ConditionPathExists=!/root/clevis-bound-during-install
@@ -198,15 +198,14 @@ autoinstall:
 
       [Install]
       WantedBy=multi-user.target
-      EOF'
+      EOF"
     - curtin in-target --target=/target chmod 700 /root/tpm-clevis-bind.sh
     - curtin in-target --target=/target systemctl enable tpm-clevis-bind.service || true
-    - curtin in-target --target=/target -- bash -c "echo 'Acquire::Retries \"5\";' > /etc/apt/apt.conf.d/80-retries"
-    - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
     - curtin in-target --target=/target -- bash -c "sed -i 's/^ *#* *issue_discards *=.*/    issue_discards = 1/' /etc/lvm/lvm.conf || true"
     - curtin in-target --target=/target systemctl enable fstrim.timer || true
     - |
       curtin in-target --target=/target -- bash -c 'cp /etc/fstab /etc/fstab.orig || true; awk '\''$2=="/"{ if($4!~/noatime/){$4=$4",noatime,lazytime"} } {print}'\'' /etc/fstab > /etc/fstab.new && mv /etc/fstab.new /etc/fstab || true'
+    - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
 
   timezone: Europe/Brussels
   user-data:
@@ -216,4 +215,7 @@ autoinstall:
     runcmd:
       - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
 
-## Post-install: replace passphrase, verify two unattended boots, optionally remove passphrase slot.
+## Post-install steps:
+## 1. Rotate the placeholder passphrase.
+## 2. Verify unattended boot twice.
+## 3. Optionally remove original passphrase slot after confirming TPM auto-unlock.
