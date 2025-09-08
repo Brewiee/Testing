@@ -23,51 +23,65 @@ autoinstall:
     primary:
       - arches: [amd64]
         uri: http://archive.ubuntu.com/ubuntu
-
   storage:
-    layout: {name: direct}
     config:
-      - type: disk
-        id: disk0
-        match: {size: '>50G'}
-        wipe: superblock-recursive
-        ptable: gpt
-      - type: partition
-        id: efi
-        device: disk0
-        size: 550M
-        flag: boot
-        fs: fat32
-        mount: {path: /boot/efi}
-      - type: partition
-        id: boot
-        device: disk0
-        size: 1G
-        fs: ext4
-        mount: {path: /boot}
-      - type: partition
-        id: luks-part
-        device: disk0
-        size: -1
-      - type: luks
-        id: luksroot
-        devices: [luks-part]
-        preserve: false
-        cipher: aes-xts-plain64
-        keysize: 512
-        mode: luks2
-        label: cryptroot
-        passphrase: Testing   # Placeholder recovery passphrase
-      - type: lvm_volgroup
-        id: vgroot
-        name: vgroot
-        devices: [luksroot]
-      - type: lvm_partition
-        id: lvroot
-        volgroup: vgroot
-        size: -1
-        mount: {path: /}
-        fs: ext4
+        - id: disk0
+          type: disk
+          path: /dev/nvme0n1
+          ptable: gpt
+          wipe: superblock-recursive
+        - id: part-esp
+          type: partition
+          device: disk0
+          size: 600M
+          flag: boot
+          grub_device: true
+        - id: fmt-esp
+          type: format
+          volume: part-esp
+          fstype: fat32
+        - id: part-boot
+          type: partition
+          device: disk0
+          size: 1G
+        - id: fmt-boot
+          type: format
+          volume: part-boot
+          fstype: ext4
+        - id: part-crypt
+          type: partition
+          device: disk0
+          size: -1
+        - id: luks-root
+          type: dm_crypt
+          volume: part-crypt
+          dm_name: luksroot
+          key: Testing
+        - id: vgroot
+          type: lvm_volgroup
+          name: vgroot
+          devices: [luks-root]
+        - id: lvroot
+          type: lvm_partition
+          name: lvroot
+          volgroup: vgroot
+          size: -1
+        - id: fs-root
+          type: format
+          volume: lvroot
+          fstype: ext4
+        - id: mnt-root
+          type: mount
+          device: fs-root
+          path: /
+        - id: mnt-boot
+          type: mount
+          device: fmt-boot
+          path: /boot
+        - id: mnt-esp
+          type: mount
+          device: fmt-esp
+          path: /boot/efi
 
   packages:
     - cryptsetup-bin
@@ -96,53 +110,52 @@ autoinstall:
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
     - curtin in-target --target=/target apt-get update || true
     - |
-      curtin in-target --target=/target -- bash -c 'cat > /root/setup-local-key.sh <<"EOF"
-      #!/bin/bash
-      set -euo pipefail
-      LOG=/root/localkey-setup.log
-      echo "[localkey] start" | tee "$LOG"
-      DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
-      if [ -z "$DEV" ]; then echo "[localkey] no_luks_device" | tee -a "$LOG"; exit 0; fi
-      KEYDIR=/etc/cryptsetup-keys.d
-      KEYFILE=$KEYDIR/luksroot.key
-      mkdir -p "$KEYDIR" && chmod 700 "$KEYDIR"
-      if [ ! -s "$KEYFILE" ]; then
-        umask 077
-        head -c 64 /dev/urandom > "$KEYFILE"
-        echo "[localkey] keyfile_created" | tee -a "$LOG"
-      else
-        echo "[localkey] keyfile_exists" | tee -a "$LOG"
-      fi
-      # Add keyfile as new keyslot if not already
-      if ! cryptsetup luksDump "$DEV" | grep -q "luksroot.key"; then
-        echo "[localkey] adding keyslot" | tee -a "$LOG"
-        echo -n "Testing" | cryptsetup luksAddKey "$DEV" "$KEYFILE" --key-file - >>"$LOG" 2>&1 || echo "[localkey] addkey_failed" | tee -a "$LOG"
-      fi
-      # Update crypttab to use keyfile (field 3)
-      if grep -q '^luksroot' /etc/crypttab; then
-        awk 'BEGIN{OFS=" "} /^luksroot/ { $3="'"$KEYFILE"'"; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/luks/) $4="luks,"$4; if($4!~/discard/) $4=$4",discard"; gsub(/,,+/,",",$4); print $1,$2,$3,$4; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
-        echo "[localkey] crypttab_updated" | tee -a "$LOG"
-      fi
-      update-initramfs -u -k all >>"$LOG" 2>&1 || echo "[localkey] initramfs_update_failed" | tee -a "$LOG"
-      echo "Testing" > /root/recovery-luks-passphrase.txt; chmod 600 /root/recovery-luks-passphrase.txt
-      echo "[localkey] done" | tee -a "$LOG"
-      EOF'
+      curtin in-target --target=/target -- bash -c 'printf "%s\n" \
+        "#!/bin/bash" \
+        "set -euo pipefail" \
+        "LOG=/root/localkey-setup.log" \
+        "echo '[localkey] start' | tee \"$LOG\"" \
+        "DEV=\$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)" \
+        "if [ -z \"$DEV\" ]; then echo '[localkey] no_luks_device' | tee -a \"$LOG\"; exit 0; fi" \
+        "KEYDIR=/etc/cryptsetup-keys.d" \
+        "KEYFILE=\$KEYDIR/luksroot.key" \
+        "mkdir -p \"$KEYDIR\" && chmod 700 \"$KEYDIR\"" \
+        "if [ ! -s \"$KEYFILE\" ]; then" \
+        "  umask 077" \
+        "  head -c 64 /dev/urandom > \"$KEYFILE\"" \
+        "  echo '[localkey] keyfile_created' | tee -a \"$LOG\"" \
+        "else" \
+        "  echo '[localkey] keyfile_exists' | tee -a \"$LOG\"" \
+        "fi" \
+        "if ! cryptsetup luksDump \"$DEV\" | grep -q 'luksroot.key'; then" \
+        "  echo '[localkey] adding keyslot' | tee -a \"$LOG\"" \
+        "  echo -n 'Testing' | cryptsetup luksAddKey \"$DEV\" \"$KEYFILE\" --key-file - >>\"$LOG\" 2>&1 || echo '[localkey] addkey_failed' | tee -a \"$LOG\"" \
+        "fi" \
+        "if grep -q '^luksroot' /etc/crypttab; then" \
+        "  awk 'BEGIN{OFS=\" \"} /^luksroot/ { f=\"luks\"; if(\$3==\"\"||\$3==\"-\"||\$3==\"none\") \$3=\"'\"$KEYFILE\"'\"; if(\$4==\"\"||\$4==\"-\"||\$4==\"none\") \$4=f; if(\$4!~ /luks/) \$4=\"luks,\"\$4; if(\$4!~ /discard/) \$4=\$4\",discard"; gsub(/,,+/,",",\$4); print; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab" \
+        "  echo '[localkey] crypttab_updated' | tee -a \"$LOG\"" \
+        "fi" \
+        "update-initramfs -u -k all >>\"$LOG\" 2>&1 || echo '[localkey] initramfs_update_failed' | tee -a \"$LOG\"" \
+        "echo 'Testing' > /root/recovery-luks-passphrase.txt; chmod 600 /root/recovery-luks-passphrase.txt" \
+        "echo '[localkey] done' | tee -a \"$LOG\"" \
+        "touch /root/.localkey_script_created" \
+        > /root/setup-local-key.sh'
     - curtin in-target --target=/target chmod 700 /root/setup-local-key.sh
     - |
-      curtin in-target --target=/target -- bash -c 'cat > /etc/systemd/system/localkey-setup.service <<"EOF"
-      [Unit]
-      Description=First boot LUKS keyfile setup
-      After=local-fs.target
-      ConditionPathExists=/root/setup-local-key.sh
-
-      [Service]
-      Type=oneshot
-      ExecStart=/root/setup-local-key.sh
-      RemainAfterExit=no
-
-      [Install]
-      WantedBy=multi-user.target
-      EOF'
+      curtin in-target --target=/target -- bash -c 'printf "%s\n" \
+        "[Unit]" \
+        "Description=First boot LUKS keyfile setup" \
+        "After=local-fs.target" \
+        "ConditionPathExists=/root/setup-local-key.sh" \
+        "" \
+        "[Service]" \
+        "Type=oneshot" \
+        "ExecStart=/root/setup-local-key.sh" \
+        "RemainAfterExit=no" \
+        "" \
+        "[Install]" \
+        "WantedBy=multi-user.target" \
+        > /etc/systemd/system/localkey-setup.service'
     - curtin in-target --target=/target systemctl enable localkey-setup.service || true
     - curtin in-target --target=/target -- bash -c "sed -i 's/^ *#* *issue_discards *=.*/    issue_discards = 1/' /etc/lvm/lvm.conf || true"
     - curtin in-target --target=/target systemctl enable fstrim.timer || true
