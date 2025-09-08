@@ -1,110 +1,79 @@
-##cloud-config
-## Fresh rebuilt Ubuntu 24.04 Autoinstall: LUKS2 -> LVM -> ext4 with TPM2 Clevis auto-unlock.
-## WARNING: Replace passphrase 'Testing' before production use.
+## Ubuntu 24.04 Autoinstall: Full-disk LUKS2 with local keyfile auto-unlock (no TPM, no network)
+## Security Trade-off: Key stored on disk (in initramfs) means theft of entire disk gives attacker the key unless Secure Boot + custom signed UKI + measured verification are enforced. Provides protection only against opportunistic access while system is off; not strong against determined offline attacker.
+## Improve tamper resistance post-install:
+##  - Enable Secure Boot with custom keys; build a Unified Kernel Image embedding initramfs; sign it.
+##  - Keep a strong recovery passphrase in a separate safe location.
 
 autoinstall:
   version: 1
-
   locale: en_US.UTF-8
-  keyboard:
-    layout: be
-    variant: nodeadkeys
-
+  keyboard: {layout: us, variant: ''}
   identity:
-    hostname: encrypted-workstation
-    username: pcinstall
-    password: "$6$rounds=4096$9SgMJXq8AVq46PUs$.I/aiO8U.o9pfYOw7CrpoXCduJTWToE9usOASpK9aqUcNYMvEAQcZ1B5OamhbR2FEbQOdsrgVhnEneKwXczSp1"
-
-  network:
-    version: 2
-    ethernets:
-      lan:
-        match: { name: "en*" }
-        dhcp4: true
-        dhcp6: false
-        optional: true
-
+    hostname: ubuntu-auto-local
+    username: ubuntu
+    password: "$6$rounds=4096$6Ank5O0ZsT06zuNX$05o2NnQLO1cMNI4YVvR4o7a+n9u40mbX8ynX98gMs2JMZ6XZ/WHL5NY0W1TUHS/fbyALJWWrhJg6JXvRFn1Jn."
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys: []
+  network: {version: 2, ethernets: {}}
   updates: security
   apt:
-    # Primary archive mirror
+    preserve_sources_list: false
     primary:
       - arches: [amd64]
         uri: http://archive.ubuntu.com/ubuntu
-    # Explicit security pocket pointing to archive (workaround when security.ubuntu.com intermittently 500s)
-    sources:
-      ubuntu-security:
-        source: deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
-
-  shutdown: reboot
 
   storage:
+    layout: {name: direct}
     config:
-      - id: disk0
-        type: disk
-        path: /dev/nvme0n1
-        ptable: gpt
+      - type: disk
+        id: disk0
+        match: {size: '>50G'}
         wipe: superblock-recursive
-      - id: part-esp
-        type: partition
+        ptable: gpt
+      - type: partition
+        id: efi
         device: disk0
-        size: 600M
+        size: 550M
         flag: boot
-        grub_device: true
-      - id: fmt-esp
-        type: format
-        volume: part-esp
-        fstype: fat32
-      - id: part-boot
-        type: partition
+        fs: fat32
+        mount: {path: /boot/efi}
+      - type: partition
+        id: boot
         device: disk0
         size: 1G
-      - id: fmt-boot
-        type: format
-        volume: part-boot
-        fstype: ext4
-      - id: part-crypt
-        type: partition
+        fs: ext4
+        mount: {path: /boot}
+      - type: partition
+        id: luks-part
         device: disk0
         size: -1
-      - id: luks-root
-        type: dm_crypt
-        volume: part-crypt
-        dm_name: luksroot
-        key: Testing
-      - id: vgroot
-        type: lvm_volgroup
+      - type: luks
+        id: luksroot
+        devices: [luks-part]
+        preserve: false
+        cipher: aes-xts-plain64
+        keysize: 512
+        mode: luks2
+        label: cryptroot
+        passphrase: Testing   # Placeholder recovery passphrase
+      - type: lvm_volgroup
+        id: vgroot
         name: vgroot
-        devices: [luks-root]
-      - id: lvroot
-        type: lvm_partition
-        name: lvroot
+        devices: [luksroot]
+      - type: lvm_partition
+        id: lvroot
         volgroup: vgroot
         size: -1
-      - id: fs-root
-        type: format
-        volume: lvroot
-        fstype: ext4
-        label: ROOTFS
-      - id: mnt-root
-        type: mount
-        device: fs-root
-        path: /
-      - id: mnt-boot
-        type: mount
-        device: fmt-boot
-        path: /boot
-      - id: mnt-esp
-        type: mount
-        device: fmt-esp
-        path: /boot/efi
-
-  ssh:
-    install-server: false
-    authorized-keys: []
+        mount: {path: /}
+        fs: ext4
 
   packages:
-    - curl
-
+    - cryptsetup-bin
+    - clevis          # (Optional future use)
+    - clevis-luks
+    - clevis-initramfs
   snaps: []
 
   early-commands:
@@ -112,8 +81,6 @@ autoinstall:
       internal=$(lsblk -ndo NAME,TYPE,RM,TRAN | awk '$2=="disk" && $3==0 && $4!~/usb/{print $1}')
       cnt=$(echo $internal | wc -w)
       if [ $cnt -ne 1 ]; then echo "ABORT wrong disk count: $cnt $internal" >&2; exit 1; fi
-    - |
-      for i in $(seq 1 30); do ip link show | grep -q 'state UP' && break; sleep 2; done
     - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
     - |
       cat > /etc/apt/apt.conf.d/80-retries <<'EOF'
@@ -129,81 +96,39 @@ autoinstall:
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
     - curtin in-target --target=/target apt-get update || true
     - |
-      curtin in-target --target=/target -- bash -c 'cat > /root/install-clevis-packages.sh <<"EOF"
+      curtin in-target --target=/target -- bash -c 'cat > /root/setup-local-key.sh <<"EOF"
       #!/bin/bash
       set -euo pipefail
-      LOG=/root/clevis-pkg-install.log
-      echo "[clevis-pkgs] start" > "$LOG"
-      PKGS=(clevis clevis-luks clevis-initramfs clevis-tpm2 tpm2-tools cryptsetup-bin)
-      # Retry loop to mitigate transient 500 / mirror hiccups
-      for attempt in {1..8}; do
-        echo "[clevis-pkgs] attempt $attempt" | tee -a "$LOG"
-        if DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=10 -y install "${PKGS[@]}" >>"$LOG" 2>&1; then
-          echo "[clevis-pkgs] success" | tee -a "$LOG"
-          exit 0
-        fi
-        sleep $((attempt*5))
-      done
-      echo "[clevis-pkgs] failed_after_retries" | tee -a "$LOG"
-      # Do not hard fail install; clevis fallback service may still install later via manual intervention.
-      exit 0
-      EOF'
-    - curtin in-target --target=/target chmod 700 /root/install-clevis-packages.sh
-    - curtin in-target --target=/target -- bash -c '/root/install-clevis-packages.sh || true'
-    - |
-      curtin in-target --target=/target -- bash -c 'cat > /root/tpm-clevis-bind.sh <<'"'"'EOF'"'"'
-      #!/bin/bash
-      set -euo pipefail
-      LOG=/root/tpm-clevis-bind.log
-      echo "[bind] start" | tee -a "$LOG"
-      # Ensure needed packages (in case late install retries failed)
-      if ! command -v clevis >/dev/null 2>&1; then
-        echo "[bind] installing clevis packages" | tee -a "$LOG"
-        DEBIAN_FRONTEND=noninteractive apt-get update >>"$LOG" 2>&1 || true
-        DEBIAN_FRONTEND=noninteractive apt-get -y install clevis clevis-luks clevis-initramfs clevis-tpm2 tpm2-tools cryptsetup-bin >>"$LOG" 2>&1 || true
-      fi
-      if ! command -v clevis >/dev/null 2>&1; then echo "[bind] clevis_not_installed" | tee -a "$LOG"; exit 0; fi
-      if ! command -v tpm2_pcrread >/dev/null 2>&1; then echo "[bind] tpm2_tools_missing" | tee -a "$LOG"; exit 0; fi
-      DEV="$(grep ^luksroot /etc/crypttab | awk '{gsub("UUID=","",$2);print $2}' | xargs -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)"
-      [ -z "$DEV" ] && DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
-      if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then echo "[bind] no_luks_device" | tee -a "$LOG"; exit 0; fi
-      echo "[bind] device=$DEV" | tee -a "$LOG"
-      if cryptsetup luksDump "$DEV" | grep -q "type: clevis"; then echo "[bind] already_has_token" | tee -a "$LOG"; systemctl disable tpm-clevis-bind.service >/dev/null 2>&1 || true; exit 0; fi
-      PASS='Testing'
-      echo "$PASS" > /root/recovery-luks-passphrase.txt; chmod 600 /root/recovery-luks-passphrase.txt
-      if echo -n "$PASS" | clevis luks bind -f -k - -d "$DEV" tpm2 '{}' -y >>"$LOG" 2>&1; then
-        echo "[bind] clevis_bind_ok" | tee -a "$LOG"
+      LOG=/root/localkey-setup.log
+      echo "[localkey] start" | tee "$LOG"
+      DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+      if [ -z "$DEV" ]; then echo "[localkey] no_luks_device" | tee -a "$LOG"; exit 0; fi
+      KEYDIR=/etc/cryptsetup-keys.d
+      KEYFILE=$KEYDIR/luksroot.key
+      mkdir -p "$KEYDIR" && chmod 700 "$KEYDIR"
+      if [ ! -s "$KEYFILE" ]; then
+        umask 077
+        head -c 64 /dev/urandom > "$KEYFILE"
+        echo "[localkey] keyfile_created" | tee -a "$LOG"
       else
-        echo "[bind] clevis_bind_failed" | tee -a "$LOG"; exit 1
+        echo "[localkey] keyfile_exists" | tee -a "$LOG"
       fi
+      # Add keyfile as new keyslot if not already
+      if ! cryptsetup luksDump "$DEV" | grep -q "luksroot.key"; then
+        echo "[localkey] adding keyslot" | tee -a "$LOG"
+        echo -n "Testing" | cryptsetup luksAddKey "$DEV" "$KEYFILE" --key-file - >>"$LOG" 2>&1 || echo "[localkey] addkey_failed" | tee -a "$LOG"
+      fi
+      # Update crypttab to use keyfile (field 3)
       if grep -q '^luksroot' /etc/crypttab; then
-        sed -i -E 's/,?tpm2-device=[^,[:space:]]*//g' /etc/crypttab
-        awk 'BEGIN{OFS=" "} /^luksroot/ { if($3==""||$3=="-"||$3=="none") $3="none"; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/luks/) $4="luks,"$4; if($4!~/discard/) $4=$4",discard"; gsub(/,,+/,",",$4); print $1,$2,$3,$4; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
-        echo "[bind] crypttab_normalized" | tee -a "$LOG"
+        awk 'BEGIN{OFS=" "} /^luksroot/ { $3="'"$KEYFILE"'"; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/luks/) $4="luks,"$4; if($4!~/discard/) $4=$4",discard"; gsub(/,,+/,",",$4); print $1,$2,$3,$4; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
+        echo "[localkey] crypttab_updated" | tee -a "$LOG"
       fi
-      update-initramfs -u -k all >>"$LOG" 2>&1 || echo "[bind] initramfs_update_failed" | tee -a "$LOG"
-      cryptsetup luksDump "$DEV" | awk '/Keyslot [0-9]+:/' >>"$LOG" || true
-      echo "[bind] done" | tee -a "$LOG"
-      systemctl disable tpm-clevis-bind.service >/dev/null 2>&1 || true
+      update-initramfs -u -k all >>"$LOG" 2>&1 || echo "[localkey] initramfs_update_failed" | tee -a "$LOG"
+      echo "Testing" > /root/recovery-luks-passphrase.txt; chmod 600 /root/recovery-luks-passphrase.txt
+      echo "[localkey] done" | tee -a "$LOG"
       EOF'
-    - |
-      curtin in-target --target=/target -- bash -c 'cat > /etc/systemd/system/tpm-clevis-bind.service <<'"'"'EOF'"'"'
-      [Unit]
-      Description=One-time TPM Clevis LUKS bind (first boot fallback)
-      After=multi-user.target
-      ConditionPathExists=/root/tpm-clevis-bind.sh
-      # Runs once; disables itself after successful bind
-
-      [Service]
-      Type=oneshot
-      ExecStart=/root/tpm-clevis-bind.sh
-      RemainAfterExit=no
-
-      [Install]
-      WantedBy=multi-user.target
-      EOF'
-    - curtin in-target --target=/target chmod 700 /root/tpm-clevis-bind.sh
-    - curtin in-target --target=/target systemctl enable tpm-clevis-bind.service || true
+    - curtin in-target --target=/target chmod 700 /root/setup-local-key.sh
+    - curtin in-target --target=/target -- bash -c '/root/setup-local-key.sh || true'
     - curtin in-target --target=/target -- bash -c "sed -i 's/^ *#* *issue_discards *=.*/    issue_discards = 1/' /etc/lvm/lvm.conf || true"
     - curtin in-target --target=/target systemctl enable fstrim.timer || true
     - |
@@ -218,7 +143,7 @@ autoinstall:
     runcmd:
       - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
 
-## Post-install steps:
-## 1. Rotate the placeholder passphrase.
-## 2. Verify unattended boot twice.
-## 3. Optionally remove original passphrase slot after confirming TPM auto-unlock.
+## Post-install (manual, recommend):
+## 1. Rotate recovery passphrase: cryptsetup luksAddKey /dev/<luksdev>; cryptsetup luksKillSlot /dev/<luksdev> <oldslot>
+## 2. Build signed UKI so attacker cannot modify initramfs/key without your signing key.
+## 3. Restrict physical access; consider moving to TPM-backed solution once hardware issue resolved.
