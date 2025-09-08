@@ -11,6 +11,7 @@
 autoinstall:
   version: 1
   interactive-sections: []
+  kernel: linux-generic   # Avoid large HWE kernel download during install (can switch later)
 
   locale: en_US.UTF-8
   keyboard:
@@ -138,12 +139,56 @@ autoinstall:
       # Wait for network link (max 60s)
       for i in $(seq 1 30); do ip link show | grep -q 'state UP' && break; sleep 2; done
     - sed -i "s/^#*PermitRootLogin.*/PermitRootLogin no/" /etc/ssh/sshd_config || true
+    - |
+      # Improve apt robustness (live environment)
+      echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
 
   late-commands:
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
     - curtin in-target --target=/target apt-get update || true
     - curtin in-target --target=/target apt-get -y install clevis clevis-luks clevis-initramfs clevis-tpm2 tpm2-tools cryptsetup-bin || true
     - |
+      # Attempt clevis binding already inside installer (for first-boot unlock). If TPM not ready, fallback service will bind.
+      curtin in-target --target=/target -- bash -c 'cat > /root/clevis-install-bind.sh <<"EOS"
+      #!/bin/bash
+      set -euo pipefail
+      LOG=/root/clevis-install-bind.log
+      PASS="Testing"   # MUST match storage.luks-root.key (change both in production)
+      echo "[install-bind] start" | tee -a "$LOG"
+      DEV="$(grep ^luksroot /etc/crypttab | awk "{gsub(\"UUID=\",\"\",\$2);print \$2}" | xargs -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)"
+      if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
+        DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+      fi
+      if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
+        echo "[install-bind] no_device" | tee -a "$LOG"; exit 0
+      fi
+      echo "[install-bind] device=$DEV" | tee -a "$LOG"
+      if cryptsetup luksDump "$DEV" | grep -q "type: clevis"; then
+        echo "[install-bind] already_bound" | tee -a "$LOG"; exit 0
+      fi
+      if [ -e /dev/tpmrm0 ] && tpm2_pcrread sha256:0 >/dev/null 2>&1; then
+        echo "[install-bind] tpm_ok" | tee -a "$LOG"
+        if echo -n "$PASS" | clevis luks bind -f -k - -d "$DEV" tpm2 '{}' -y >>"$LOG" 2>&1; then
+          echo "$PASS" > /root/recovery-luks-passphrase.txt
+          chmod 600 /root/recovery-luks-passphrase.txt
+          sed -i -E 's/,?tpm2-device=[^,[:space:]]*//g' /etc/crypttab || true
+          if grep -q '^luksroot' /etc/crypttab; then
+            awk 'BEGIN{OFS=" "} /^luksroot/ { if($3==""||$3=="-"||$3=="none") $3="none"; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/luks/) $4="luks,"$4; if($4!~/discard/) $4=$4",discard"; gsub(/,,+/,",",$4); print $1,$2,$3,$4; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
+          fi
+          update-initramfs -u -k all >>"$LOG" 2>&1 || echo "[install-bind] initramfs_warn" | tee -a "$LOG"
+          touch /root/clevis-bound-during-install
+          echo "[install-bind] success" | tee -a "$LOG"
+        else
+          echo "[install-bind] clevis_bind_failed" | tee -a "$LOG"
+        fi
+      else
+        echo "[install-bind] tpm_not_ready" | tee -a "$LOG"
+      fi
+      EOS'
+    - curtin in-target --target=/target chmod 700 /root/clevis-install-bind.sh
+    - curtin in-target --target=/target -- bash -c "/root/clevis-install-bind.sh || echo install_bind_script_failed >> /root/autoinstall.log"
+    - |
+      # Write first-boot clevis binding script (TPM available reliably after real boot)
       curtin in-target --target=/target -- bash -c 'cat > /root/tpm-clevis-bind.sh <<"EOS"
       #!/bin/bash
       set -euo pipefail
@@ -151,28 +196,26 @@ autoinstall:
       echo "[bind] start" | tee -a "$LOG"
       DEV="$(grep ^luksroot /etc/crypttab | awk "{gsub(\"UUID=\",\"\",\$2);print \$2}" | xargs -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)"
       if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
-        # Fallback: first crypto_LUKS backing mapper name luksroot
         DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
       fi
       if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
         echo "[bind] no_luks_device" | tee -a "$LOG"; exit 0
       fi
       echo "[bind] device=$DEV" | tee -a "$LOG"
-      # If already has clevis token, skip
-      if cryptsetup luksDump "$DEV" | grep -q "type: clevis"; then
-        echo "[bind] already_has_token" | tee -a "$LOG"; exit 0
+      if [ -f /root/clevis-bound-during-install ]; then
+        echo "[bind] skip_first_boot_already_bound_install_phase" | tee -a "$LOG"; systemctl disable tpm-clevis-bind.service >/dev/null 2>&1 || true; exit 0
       fi
-      # Passphrase (same as autoinstall key) – read from variable below; store a recovery copy
-      PASS='Testing
+      if cryptsetup luksDump "$DEV" | grep -q "type: clevis"; then
+        echo "[bind] already_has_token" | tee -a "$LOG"; systemctl disable tpm-clevis-bind.service >/dev/null 2>&1 || true; exit 0
+      fi
+      PASS='Testing'
       echo "$PASS" > /root/recovery-luks-passphrase.txt
       chmod 600 /root/recovery-luks-passphrase.txt
-      # Bind clevis TPM2 (broad policy; tighten with PCRs later if desired)
       if echo -n "$PASS" | clevis luks bind -f -k - -d "$DEV" tpm2 '{}' -y >>"$LOG" 2>&1; then
         echo "[bind] clevis_bind_ok" | tee -a "$LOG"
       else
         echo "[bind] clevis_bind_failed" | tee -a "$LOG"; exit 1
       fi
-      # Normalize crypttab (ensure luks,discard; remove legacy tpm2-device entries)
       if grep -q '^luksroot' /etc/crypttab; then
         sed -i -E 's/,?tpm2-device=[^,[:space:]]*//g' /etc/crypttab
         awk 'BEGIN{OFS=" "} /^luksroot/ { if($3==""||$3=="-"||$3=="none") $3="none"; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/luks/) $4="luks,"$4; if($4!~/discard/) $4=$4",discard"; gsub(/,,+/,",",$4); print $1,$2,$3,$4; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
@@ -181,13 +224,35 @@ autoinstall:
       update-initramfs -u -k all >>"$LOG" 2>&1 || echo "[bind] initramfs_update_failed" | tee -a "$LOG"
       cryptsetup luksDump "$DEV" | awk '/Keyslot [0-9]+:/' >>"$LOG" || true
       echo "[bind] done" | tee -a "$LOG"
+      systemctl disable tpm-clevis-bind.service >/dev/null 2>&1 || true
       EOS'
+    - |
+      # Systemd unit for first-boot binding
+      curtin in-target --target=/target -- bash -c 'cat > /etc/systemd/system/tpm-clevis-bind.service <<EOF
+      [Unit]
+      Description=One-time TPM Clevis LUKS bind
+      After=multi-user.target
+      ConditionPathExists=/root/tpm-clevis-bind.sh
+
+      [Service]
+      Type=oneshot
+      ExecStart=/root/tpm-clevis-bind.sh
+      RemainAfterExit=no
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF'
     - curtin in-target --target=/target chmod 700 /root/tpm-clevis-bind.sh
-    - curtin in-target --target=/target -- bash -c "/root/tpm-clevis-bind.sh || echo clevis_bind_script_failed >> /root/autoinstall.log"
+    - curtin in-target --target=/target systemctl enable tpm-clevis-bind.service || true
+    - curtin in-target --target=/target -- bash -c "echo 'Acquire::Retries \"5\";' > /etc/apt/apt.conf.d/80-retries"
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
     - curtin in-target --target=/target -- bash -c "sed -i 's/^ *#* *issue_discards *=.*/    issue_discards = 1/' /etc/lvm/lvm.conf || true"
     - curtin in-target --target=/target systemctl enable fstrim.timer || true
-    - curtin in-target --target=/target -- bash -c "cp /etc/fstab /etc/fstab.orig; awk '$2==\"/\"{ if($4!~/noatime/){$4=$4\",noatime,lazytime"} {print}' /etc/fstab > /etc/fstab.new && mv /etc/fstab.new /etc/fstab || true"
+    - |
+      curtin in-target --target=/target -- bash -c '
+        cp /etc/fstab /etc/fstab.orig || true
+        awk '\''$2=="/"{ if($4!~/noatime/){$4=$4",noatime,lazytime"} } {print}'\'' /etc/fstab > /etc/fstab.new && mv /etc/fstab.new /etc/fstab || true
+      '
 
   timezone: Europe/Brussels
   user-data:
