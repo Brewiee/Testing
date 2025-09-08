@@ -4,7 +4,7 @@
 autoinstall:
   version: 1
   locale: en_US.UTF-8
-  keyboard: {layout: us, variant: ''}
+  keyboard: {layout: be, variant: 'nodeadkeys'}
   identity:
     hostname: p250253.vito.local
     username: ubuntu
@@ -137,22 +137,7 @@ autoinstall:
       touch /root/.localkey_script_created
       EOF
       chmod 700 /root/setup-local-key.sh"
-    - |
-      curtin in-target --target=/target -- bash -c "cat > /etc/systemd/system/localkey-setup.service <<'EOF'
-      [Unit]
-      Description=First boot LUKS keyfile setup
-      After=local-fs.target
-      ConditionPathExists=/root/setup-local-key.sh
-
-      [Service]
-      Type=oneshot
-      ExecStart=/root/setup-local-key.sh
-      RemainAfterExit=no
-
-      [Install]
-      WantedBy=multi-user.target
-      EOF"
-    - curtin in-target --target=/target systemctl enable localkey-setup.service || true
+    - curtin in-target --target=/target -- bash -c "/root/setup-local-key.sh || echo '[late] localkey script error' >> /root/autoinstall.log"
     - curtin in-target --target=/target -- bash -c "sed -i 's/^ *#* *issue_discards *=.*/    issue_discards = 1/' /etc/lvm/lvm.conf || true"
     - curtin in-target --target=/target systemctl enable fstrim.timer || true
     - |
