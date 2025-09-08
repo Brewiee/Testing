@@ -26,9 +26,14 @@ autoinstall:
 
   updates: security
   apt:
+    # Primary archive mirror
     primary:
       - arches: [amd64]
         uri: http://archive.ubuntu.com/ubuntu
+    # Explicit security pocket pointing to archive (workaround when security.ubuntu.com intermittently 500s)
+    sources:
+      ubuntu-security:
+        source: deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
 
   shutdown: reboot
 
@@ -110,12 +115,41 @@ autoinstall:
     - |
       for i in $(seq 1 30); do ip link show | grep -q 'state UP' && break; sleep 2; done
     - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
-    - echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
+    - |
+      cat > /etc/apt/apt.conf.d/80-retries <<'EOF'
+      Acquire::Retries "10";
+      Acquire::http::Retry-5xx "true";
+      Acquire::https::Retry-5xx "true";
+      Acquire::http::Pipeline-Depth "0";
+      Acquire::http::No-Cache "true";
+      Acquire::Languages "none";
+      EOF
 
   late-commands:
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
     - curtin in-target --target=/target apt-get update || true
-    - curtin in-target --target=/target apt-get -y install clevis clevis-luks clevis-initramfs clevis-tpm2 tpm2-tools cryptsetup-bin || true
+    - |
+      curtin in-target --target=/target -- bash -c 'cat > /root/install-clevis-packages.sh <<"EOF"
+      #!/bin/bash
+      set -euo pipefail
+      LOG=/root/clevis-pkg-install.log
+      echo "[clevis-pkgs] start" > "$LOG"
+      PKGS=(clevis clevis-luks clevis-initramfs clevis-tpm2 tpm2-tools cryptsetup-bin)
+      # Retry loop to mitigate transient 500 / mirror hiccups
+      for attempt in {1..8}; do
+        echo "[clevis-pkgs] attempt $attempt" | tee -a "$LOG"
+        if DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=10 -y install "${PKGS[@]}" >>"$LOG" 2>&1; then
+          echo "[clevis-pkgs] success" | tee -a "$LOG"
+          exit 0
+        fi
+        sleep $((attempt*5))
+      done
+      echo "[clevis-pkgs] failed_after_retries" | tee -a "$LOG"
+      # Do not hard fail install; clevis fallback service may still install later via manual intervention.
+      exit 0
+      EOF'
+    - curtin in-target --target=/target chmod 700 /root/install-clevis-packages.sh
+    - curtin in-target --target=/target -- bash -c '/root/install-clevis-packages.sh || true'
     - |
       curtin in-target --target=/target -- bash -c 'cat > /root/clevis-install-bind.sh <<"EOF"
       #!/bin/bash
