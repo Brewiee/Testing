@@ -151,7 +151,7 @@ autoinstall:
     - curtin in-target --target=/target chmod 700 /root/install-clevis-packages.sh
     - curtin in-target --target=/target -- bash -c '/root/install-clevis-packages.sh || true'
     - |
-      curtin in-target --target=/target -- bash -c 'cat > /root/clevis-install-bind.sh <<"EOF"
+      curtin in-target --target=/target -- bash -c 'cat > /root/clevis-install-bind.sh <<'"'"'EOF'"'"'
       #!/bin/bash
       set -euo pipefail
       LOG=/root/clevis-install-bind.log
@@ -159,7 +159,7 @@ autoinstall:
       echo "[install-bind] start" | tee -a "$LOG"
       if ! command -v clevis >/dev/null 2>&1; then echo "[install-bind] clevis_not_installed" | tee -a "$LOG"; exit 0; fi
       if ! command -v tpm2_pcrread >/dev/null 2>&1; then echo "[install-bind] tpm2_tools_missing" | tee -a "$LOG"; exit 0; fi
-      DEV="$(grep ^luksroot /etc/crypttab | awk "{gsub(\"UUID=\",\"\",$2);print $2}" | xargs -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)"
+      DEV="$(grep ^luksroot /etc/crypttab | awk '{gsub("UUID=","",$2);print $2}' | xargs -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)"
       [ -z "$DEV" ] && DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
       if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then echo "[install-bind] no_device" | tee -a "$LOG"; exit 0; fi
       echo "[install-bind] device=$DEV" | tee -a "$LOG"
@@ -187,14 +187,14 @@ autoinstall:
     - curtin in-target --target=/target -- bash -c "/root/clevis-install-bind.sh || echo install_bind_script_failed >> /root/autoinstall.log"
     - curtin in-target --target=/target -- bash -c "[ -f /root/clevis-install-bind.log ] && chmod 600 /root/clevis-install-bind.log || true"
     - |
-      curtin in-target --target=/target -- bash -c 'cat > /root/tpm-clevis-bind.sh <<"EOF"
+      curtin in-target --target=/target -- bash -c 'cat > /root/tpm-clevis-bind.sh <<'"'"'EOF'"'"'
       #!/bin/bash
       set -euo pipefail
       LOG=/root/tpm-clevis-bind.log
       echo "[bind] start" | tee -a "$LOG"
       if ! command -v clevis >/dev/null 2>&1; then echo "[bind] clevis_not_installed" | tee -a "$LOG"; exit 0; fi
       if ! command -v tpm2_pcrread >/dev/null 2>&1; then echo "[bind] tpm2_tools_missing" | tee -a "$LOG"; exit 0; fi
-      DEV="$(grep ^luksroot /etc/crypttab | awk "{gsub(\"UUID=\",\"\",$2);print $2}" | xargs -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)"
+      DEV="$(grep ^luksroot /etc/crypttab | awk '{gsub("UUID=","",$2);print $2}' | xargs -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)"
       [ -z "$DEV" ] && DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
       if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then echo "[bind] no_luks_device" | tee -a "$LOG"; exit 0; fi
       echo "[bind] device=$DEV" | tee -a "$LOG"
