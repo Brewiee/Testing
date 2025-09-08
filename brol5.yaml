@@ -11,7 +11,6 @@
 autoinstall:
   version: 1
   interactive-sections: []
-  kernel: linux-generic   # Avoid large HWE kernel download during install (can switch later)
 
   locale: en_US.UTF-8
   keyboard:
