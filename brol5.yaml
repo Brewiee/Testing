@@ -1,8 +1,5 @@
 ## Ubuntu 24.04 Autoinstall: Full-disk LUKS2 with local keyfile auto-unlock (no TPM, no network)
-## Security Trade-off: Key stored on disk (in initramfs) means theft of entire disk gives attacker the key unless Secure Boot + custom signed UKI + measured verification are enforced. Provides protection only against opportunistic access while system is off; not strong against determined offline attacker.
-## Improve tamper resistance post-install:
-##  - Enable Secure Boot with custom keys; build a Unified Kernel Image embedding initramfs; sign it.
-##  - Keep a strong recovery passphrase in a separate safe location.
+## NOTE: Keyfile stored on disk (initramfs). For stronger tamper resistance add Secure Boot + signed UKI, or later migrate to TPM.
 
 autoinstall:
   version: 1
@@ -25,71 +22,69 @@ autoinstall:
         uri: http://archive.ubuntu.com/ubuntu
   storage:
     config:
-        - id: disk0
-          type: disk
-          path: /dev/nvme0n1
-          ptable: gpt
-          wipe: superblock-recursive
-        - id: part-esp
-          type: partition
-          device: disk0
-          size: 600M
-          flag: boot
-          grub_device: true
-        - id: fmt-esp
-          type: format
-          volume: part-esp
-          fstype: fat32
-        - id: part-boot
-          type: partition
-          device: disk0
-          size: 1G
-        - id: fmt-boot
-          type: format
-          volume: part-boot
-          fstype: ext4
-        - id: part-crypt
-          type: partition
-          device: disk0
-          size: -1
-        - id: luks-root
-          type: dm_crypt
-          volume: part-crypt
-          dm_name: luksroot
-          key: Testing
-        - id: vgroot
-          type: lvm_volgroup
-          name: vgroot
-          devices: [luks-root]
-        - id: lvroot
-          type: lvm_partition
-          name: lvroot
-          volgroup: vgroot
-          size: -1
-        - id: fs-root
-          type: format
-          volume: lvroot
-          fstype: ext4
-        - id: mnt-root
-          type: mount
-          device: fs-root
-          path: /
-        - id: mnt-boot
-          type: mount
-          device: fmt-boot
-          path: /boot
-        - id: mnt-esp
-          type: mount
-          device: fmt-esp
-          path: /boot/efi
-
+      - id: disk0
+        type: disk
+        path: /dev/nvme0n1
+        ptable: gpt
+        wipe: superblock-recursive
+      - id: part-esp
+        type: partition
+        device: disk0
+        size: 600M
+        flag: boot
+        grub_device: true
+      - id: fmt-esp
+        type: format
+        volume: part-esp
+        fstype: fat32
+      - id: part-boot
+        type: partition
+        device: disk0
+        size: 1G
+      - id: fmt-boot
+        type: format
+        volume: part-boot
+        fstype: ext4
+      - id: part-crypt
+        type: partition
+        device: disk0
+        size: -1
+      - id: luks-root
+        type: dm_crypt
+        volume: part-crypt
+        dm_name: luksroot
+        key: Testing
+      - id: vgroot
+        type: lvm_volgroup
+        name: vgroot
+        devices: [luks-root]
+      - id: lvroot
+        type: lvm_partition
+        name: lvroot
+        volgroup: vgroot
+        size: -1
+      - id: fs-root
+        type: format
+        volume: lvroot
+        fstype: ext4
+      - id: mnt-root
+        type: mount
+        device: fs-root
+        path: /
+      - id: mnt-boot
+        type: mount
+        device: fmt-boot
+        path: /boot
+      - id: mnt-esp
+        type: mount
+        device: fmt-esp
+        path: /boot/efi
   packages:
     - cryptsetup-bin
-    - clevis          # (Optional future use)
+    - clevis
     - clevis-luks
     - clevis-initramfs
   snaps: []
-
   early-commands:
     - |
       internal=$(lsblk -ndo NAME,TYPE,RM,TRAN | awk '$2=="disk" && $3==0 && $4!~/usb/{print $1}')
@@ -105,64 +100,64 @@ autoinstall:
       Acquire::http::No-Cache "true";
       Acquire::Languages "none";
       EOF
-
   late-commands:
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
     - curtin in-target --target=/target apt-get update || true
     - |
-      curtin in-target --target=/target -- bash -c 'printf "%s\n" \
-        "#!/bin/bash" \
-        "set -euo pipefail" \
-        "LOG=/root/localkey-setup.log" \
-        "echo '[localkey] start' | tee \"$LOG\"" \
-        "DEV=\$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)" \
-        "if [ -z \"$DEV\" ]; then echo '[localkey] no_luks_device' | tee -a \"$LOG\"; exit 0; fi" \
-        "KEYDIR=/etc/cryptsetup-keys.d" \
-        "KEYFILE=\$KEYDIR/luksroot.key" \
-        "mkdir -p \"$KEYDIR\" && chmod 700 \"$KEYDIR\"" \
-        "if [ ! -s \"$KEYFILE\" ]; then" \
-        "  umask 077" \
-        "  head -c 64 /dev/urandom > \"$KEYFILE\"" \
-        "  echo '[localkey] keyfile_created' | tee -a \"$LOG\"" \
-        "else" \
-        "  echo '[localkey] keyfile_exists' | tee -a \"$LOG\"" \
-        "fi" \
-        "if ! cryptsetup luksDump \"$DEV\" | grep -q 'luksroot.key'; then" \
-        "  echo '[localkey] adding keyslot' | tee -a \"$LOG\"" \
-        "  echo -n 'Testing' | cryptsetup luksAddKey \"$DEV\" \"$KEYFILE\" --key-file - >>\"$LOG\" 2>&1 || echo '[localkey] addkey_failed' | tee -a \"$LOG\"" \
-        "fi" \
-        "if grep -q '^luksroot' /etc/crypttab; then" \
-        "  awk 'BEGIN{OFS=\" \"} /^luksroot/ { f=\"luks\"; if(\$3==\"\"||\$3==\"-\"||\$3==\"none\") \$3=\"'\"$KEYFILE\"'\"; if(\$4==\"\"||\$4==\"-\"||\$4==\"none\") \$4=f; if(\$4!~ /luks/) \$4=\"luks,\"\$4; if(\$4!~ /discard/) \$4=\$4\",discard"; gsub(/,,+/,",",\$4); print; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab" \
-        "  echo '[localkey] crypttab_updated' | tee -a \"$LOG\"" \
-        "fi" \
-        "update-initramfs -u -k all >>\"$LOG\" 2>&1 || echo '[localkey] initramfs_update_failed' | tee -a \"$LOG\"" \
-        "echo 'Testing' > /root/recovery-luks-passphrase.txt; chmod 600 /root/recovery-luks-passphrase.txt" \
-        "echo '[localkey] done' | tee -a \"$LOG\"" \
-        "touch /root/.localkey_script_created" \
-        > /root/setup-local-key.sh'
-    - curtin in-target --target=/target chmod 700 /root/setup-local-key.sh
+      curtin in-target --target=/target -- bash -c "cat > /root/setup-local-key.sh <<'EOF'
+      #!/bin/bash
+      set -euo pipefail
+      LOG=/root/localkey-setup.log
+      exec > >(tee -a "$LOG") 2>&1
+      echo '[localkey] start'
+      DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+      if [ -z "$DEV" ]; then echo '[localkey] no_luks_device'; exit 0; fi
+      KEYDIR=/etc/cryptsetup-keys.d
+      KEYFILE=$KEYDIR/luksroot.key
+      mkdir -p "$KEYDIR" && chmod 700 "$KEYDIR"
+      if [ ! -s "$KEYFILE" ]; then
+        umask 077
+        head -c 64 /dev/urandom > "$KEYFILE"
+        echo '[localkey] keyfile_created'
+      else
+        echo '[localkey] keyfile_exists'
+      fi
+      if ! cryptsetup luksDump "$DEV" | grep -q 'luksroot.key'; then
+        echo '[localkey] adding keyslot'
+        echo -n 'Testing' | cryptsetup luksAddKey "$DEV" "$KEYFILE" --key-file - || echo '[localkey] addkey_failed'
+      fi
+      if grep -q '^luksroot' /etc/crypttab; then
+        cp /etc/crypttab /etc/crypttab.bak || true
+        awk -v key="$KEYFILE" 'BEGIN{OFS=" "} /^luksroot/ { if($3==""||$3=="-"||$3=="none") $3=key; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/luks/) $4="luks,"$4; if($4!~/discard/) $4=$4",discard"; gsub(/,,+/,",",$4); print $1,$2,$3,$4; next } {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
+        echo '[localkey] crypttab_updated'
+      fi
+      update-initramfs -u -k all || echo '[localkey] initramfs_update_failed'
+      echo 'Testing' > /root/recovery-luks-passphrase.txt; chmod 600 /root/recovery-luks-passphrase.txt
+      echo '[localkey] done'
+      touch /root/.localkey_script_created
+      EOF
+      chmod 700 /root/setup-local-key.sh"
     - |
-      curtin in-target --target=/target -- bash -c 'printf "%s\n" \
-        "[Unit]" \
-        "Description=First boot LUKS keyfile setup" \
-        "After=local-fs.target" \
-        "ConditionPathExists=/root/setup-local-key.sh" \
-        "" \
-        "[Service]" \
-        "Type=oneshot" \
-        "ExecStart=/root/setup-local-key.sh" \
-        "RemainAfterExit=no" \
-        "" \
-        "[Install]" \
-        "WantedBy=multi-user.target" \
-        > /etc/systemd/system/localkey-setup.service'
+      curtin in-target --target=/target -- bash -c "cat > /etc/systemd/system/localkey-setup.service <<'EOF'
+      [Unit]
+      Description=First boot LUKS keyfile setup
+      After=local-fs.target
+      ConditionPathExists=/root/setup-local-key.sh
+
+      [Service]
+      Type=oneshot
+      ExecStart=/root/setup-local-key.sh
+      RemainAfterExit=no
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF"
     - curtin in-target --target=/target systemctl enable localkey-setup.service || true
     - curtin in-target --target=/target -- bash -c "sed -i 's/^ *#* *issue_discards *=.*/    issue_discards = 1/' /etc/lvm/lvm.conf || true"
     - curtin in-target --target=/target systemctl enable fstrim.timer || true
     - |
       curtin in-target --target=/target -- bash -c 'cp /etc/fstab /etc/fstab.orig || true; awk '\''$2=="/"{ if($4!~/noatime/){$4=$4",noatime,lazytime"} } {print}'\'' /etc/fstab > /etc/fstab.new && mv /etc/fstab.new /etc/fstab || true'
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
-
   timezone: Europe/Brussels
   user-data:
     disable_root: true
@@ -171,7 +166,7 @@ autoinstall:
     runcmd:
       - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
 
-## Post-install (manual, recommend):
-## 1. Rotate recovery passphrase: cryptsetup luksAddKey /dev/<luksdev>; cryptsetup luksKillSlot /dev/<luksdev> <oldslot>
-## 2. Build signed UKI so attacker cannot modify initramfs/key without your signing key.
-## 3. Restrict physical access; consider moving to TPM-backed solution once hardware issue resolved.
+## Post-install recommended:
+## 1. Rotate placeholder passphrase 'Testing'.
+## 2. Verify auto-unlock twice, then optionally remove original slot.
+## 3. Consider Secure Boot + signed UKI for tamper resistance.
