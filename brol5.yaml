@@ -6,9 +6,9 @@ autoinstall:
   locale: en_US.UTF-8
   keyboard: {layout: us, variant: ''}
   identity:
-    hostname: ubuntu-auto-local
+    hostname: p250253.vito.local
     username: ubuntu
-    password: "$6$rounds=4096$6Ank5O0ZsT06zuNX$05o2NnQLO1cMNI4YVvR4o7a+n9u40mbX8ynX98gMs2JMZ6XZ/WHL5NY0W1TUHS/fbyALJWWrhJg6JXvRFn1Jn."
+    password: "$6$rounds=4096$9SgMJXq8AVq46PUs$.I/aiO8U.o9pfYOw7CrpoXCduJTWToE9usOASpK9aqUcNYMvEAQcZ1B5OamhbR2FEbQOdsrgVhnEneKwXczSp1"
   ssh:
     install-server: true
     allow-pw: false
