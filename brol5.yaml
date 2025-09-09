@@ -113,72 +113,51 @@ autoinstall:
       set -euo pipefail
       PATH=/usr/sbin:/sbin:/usr/bin:/bin
       LOG=/root/tpm-clevis-bind.log
-      exec > >(tee -a "$LOG") 2>&1
-      echo '[tpm-bind] start'
-      # Idempotence: if marker exists OR clevis token already present, exit quickly.
-      if [ -f /root/.tpm_clevis_bound ]; then
-        echo '[tpm-bind] marker_present_exiting'; exit 0; fi
-      # Find LUKS root device: prefer crypttab UUID then fallback blkid first crypto_LUKS.
-      DEV="$(grep ^luksroot /etc/crypttab | awk '{gsub("UUID=","",$2);print $2}' | xargs -r -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)"
-      [ -z "$DEV" ] && DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
-      if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then echo '[tpm-bind] no_luks_device'; exit 0; fi
-      echo '[tpm-bind] device='"$DEV"
-      # Already bound?
-      if cryptsetup luksDump "$DEV" | grep -q 'type: clevis'; then
-        echo '[tpm-bind] already_bound'; touch /root/.tpm_clevis_bound; exit 0; fi
-      # TPM readiness (retry loop)
-      ok=0
-      for i in {1..10}; do
-        if tpm2_pcrread sha256:0 >/dev/null 2>&1; then ok=1; break; fi
-        echo "[tpm-bind] tpm_not_ready_retry_$i"; sleep 2;
-      done
-      if [ $ok -ne 1 ]; then echo '[tpm-bind] tpm_unavailable'; exit 1; fi
-      # Recovery passphrase (already set as install key). Retain a copy for rotation phase.
-      PASS='Testing'
-      install -m600 /dev/stdin /root/recovery-luks-passphrase.txt <<<"$PASS"
-      # Perform binding (default PCR policy; later you can restrict) using stdin for passphrase.
-      # Bind using only PCR 7 (Secure Boot/DB state) for stability; adjust if you want stricter policy later.
-      if echo -n "$PASS" | clevis luks bind -f -k - -d "$DEV" tpm2 '{"pcr_ids":"7"}' -y; then
-        echo '[tpm-bind] clevis_bind_ok'
-      else
-        echo '[tpm-bind] clevis_bind_failed'; exit 1
-      fi
-      # Verify token presence
-      if ! clevis luks list -d "$DEV" >/dev/null 2>&1; then
-        echo '[tpm-bind] token_missing_after_bind'; exit 1
-      fi
-      # Normalize crypttab (no keyfile -> 'none', ensure luks, add discard)
-      if grep -q '^luksroot' /etc/crypttab; then
-        awk 'BEGIN{OFS=" "} /^luksroot/ {
-            if($3==""||$3=="-"||$3=="none") $3="none";
-            if($4==""||$4=="-"||$4=="none") $4="luks";
-            if($4!~/luks/) $4="luks,"$4;
-            if($4!~/discard/) $4=$4",discard";
-            if($4!~/x-initrd.attach/) $4=$4",x-initrd.attach";
-            if($4!~/initramfs/) $4=$4",initramfs";
-            gsub(/,,+/,",",$4); sub(/,$/,"",$4); print $1,$2,$3,$4; next}
-          {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
-        echo '[tpm-bind] crypttab_normalized'
-      fi
-      # Regenerate initramfs so clevis hook + token included.
-      if update-initramfs -u -k all; then
-        echo '[tpm-bind] initramfs_updated'
-        # Sanity check: list clevis artifacts inside new initramfs
-        lsinitramfs /boot/initrd.img-$(uname -r) | grep -q clevis && echo '[tpm-bind] clevis_present_in_initramfs' || echo '[tpm-bind] clevis_not_found_in_initramfs'
-      else
-        echo '[tpm-bind] initramfs_update_failed'
-      fi
-      cryptsetup luksDump "$DEV" | awk '/Keyslot [0-9]+:/' || true
-      touch /root/.tpm_clevis_bound
-      echo '[tpm-bind] done_success'
-      EOF
-      chmod 700 /root/tpm-clevis-bind.sh"
-    - |
-      curtin in-target --target=/target -- bash -c "cat > /etc/systemd/system/tpm-clevis-bind.service <<'EOF'
-      [Unit]
-      Description=One-time TPM2 Clevis bind for root LUKS (first boot)
-      After=multi-user.target
-      ConditionPathExists=/root/tpm-clevis-bind.sh
+      - |
+        curtin in-target --target=/target -- bash -c "cat > /root/tpm-clevis-bind.sh <<'EOF'
+        #!/bin/bash
+        # One-time TPM2 Clevis binding script (first real boot)
+        set -euo pipefail
+        PATH=/usr/sbin:/sbin:/usr/bin:/bin
+        LOG=/root/tpm-clevis-bind.log
+        exec > >(tee -a "$LOG") 2>&1
+        echo '[tpm-bind] start'
+        # Idempotence
+        if [ -f /root/.tpm_clevis_bound ]; then echo '[tpm-bind] marker_present_exiting'; exit 0; fi
+        # Locate LUKS container (several fallbacks)
+        DEV="$(grep ^luksroot /etc/crypttab | awk '{gsub("UUID=","",$2);print $2}' | xargs -r -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)"
+        if [ -z "$DEV" ]; then DEV=$(cryptsetup status luksroot 2>/dev/null | awk '/device:/ {print $2}' || true); fi
+        if [ -z "$DEV" ]; then for d in $(blkid -o device); do if cryptsetup isLuks "$d" 2>/dev/null; then DEV="$d"; break; fi; done; fi
+        if [ -z "$DEV" ]; then DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true); fi
+        if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then echo '[tpm-bind] no_luks_device'; exit 1; fi
+        echo "[tpm-bind] device=$DEV"
+        if cryptsetup luksDump "$DEV" | grep -q 'type: clevis'; then echo '[tpm-bind] already_bound'; touch /root/.tpm_clevis_bound; exit 0; fi
+        # TPM readiness on PCR 7
+        ok=0; for i in {1..10}; do if tpm2_pcrread sha256:7 >/dev/null 2>&1; then ok=1; break; fi; echo "[tpm-bind] tpm_not_ready_retry_$i"; sleep 2; done
+        if [ $ok -ne 1 ]; then echo '[tpm-bind] tpm_unavailable'; exit 1; fi
+        PASS='Testing'
+        install -m600 /dev/stdin /root/recovery-luks-passphrase.txt <<<"$PASS"
+        if echo -n "$PASS" | clevis luks bind -f -k - -d "$DEV" tpm2 '{"pcr_ids":"7"}' -y; then
+          echo '[tpm-bind] clevis_bind_ok'
+        else
+          echo '[tpm-bind] clevis_bind_failed'; exit 1
+        fi
+        if ! clevis luks list -d "$DEV" >/dev/null 2>&1; then echo '[tpm-bind] token_missing_after_bind'; exit 1; fi
+        if grep -q '^luksroot' /etc/crypttab; then
+          awk 'BEGIN{OFS=" "} /^luksroot/ { if($3==""||$3=="-"||$3=="none") $3="none"; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/luks/) $4="luks,"$4; if($4!~/discard/) $4=$4",discard"; if($4!~/x-initrd.attach/) $4=$4",x-initrd.attach"; if($4!~/initramfs/) $4=$4",initramfs"; gsub(/,,+/,",",$4); sub(/,$/,"",$4); print $1,$2,$3,$4; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
+          echo '[tpm-bind] crypttab_normalized'
+        fi
+        if update-initramfs -u -k all; then
+          echo '[tpm-bind] initramfs_updated'
+          lsinitramfs /boot/initrd.img-$(uname -r) | grep -q clevis && echo '[tpm-bind] clevis_present_in_initramfs' || echo '[tpm-bind] clevis_not_found_in_initramfs'
+        else
+          echo '[tpm-bind] initramfs_update_failed'
+        fi
+        cryptsetup luksDump "$DEV" | awk '/Keyslot [0-9]+:/' || true
+        touch /root/.tpm_clevis_bound
+        echo '[tpm-bind] done_success'
+        EOF
+        chmod 700 /root/tpm-clevis-bind.sh"
       # Service disables itself after success.
       [Service]
       Type=oneshot
@@ -193,6 +172,8 @@ autoinstall:
     - curtin in-target --target=/target systemctl enable fstrim.timer || true
     - |
       curtin in-target --target=/target -- bash -c 'cp /etc/fstab /etc/fstab.orig || true; awk '\''$2=="/"{ if($4!~/noatime/){$4=$4",noatime,lazytime"} } {print}'\'' /etc/fstab > /etc/fstab.new && mv /etc/fstab.new /etc/fstab || true'
+    - |
+      curtin in-target --target=/target -- bash -c '[ -s /root/tpm-clevis-bind.sh ] && [ -s /etc/systemd/system/tpm-clevis-bind.service ] && echo "[late] tpm_clevis_artifacts_ok" >> /root/autoinstall.log || echo "[late] tpm_clevis_artifacts_missing" >> /root/autoinstall.log'
     - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
   timezone: Europe/Brussels
   user-data:
