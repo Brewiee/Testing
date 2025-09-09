@@ -149,7 +149,15 @@ autoinstall:
       fi
       # Normalize crypttab (no keyfile -> 'none', ensure luks, add discard)
       if grep -q '^luksroot' /etc/crypttab; then
-        awk 'BEGIN{OFS=" "} /^luksroot/ { if($3==""||$3=="-"||$3=="none") $3="none"; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/luks/) $4="luks,"$4; if($4!~/discard/) $4=$4",discard"; gsub(/,,+/,",",$4); sub(/,$/,"",$4); print $1,$2,$3,$4; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
+        awk 'BEGIN{OFS=" "} /^luksroot/ {
+            if($3==""||$3=="-"||$3=="none") $3="none";
+            if($4==""||$4=="-"||$4=="none") $4="luks";
+            if($4!~/luks/) $4="luks,"$4;
+            if($4!~/discard/) $4=$4",discard";
+            if($4!~/x-initrd.attach/) $4=$4",x-initrd.attach";
+            if($4!~/initramfs/) $4=$4",initramfs";
+            gsub(/,,+/,",",$4); sub(/,$/,"",$4); print $1,$2,$3,$4; next}
+          {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
         echo '[tpm-bind] crypttab_normalized'
       fi
       # Regenerate initramfs so clevis hook + token included.
