@@ -137,10 +137,15 @@ autoinstall:
       PASS='Testing'
       install -m600 /dev/stdin /root/recovery-luks-passphrase.txt <<<"$PASS"
       # Perform binding (default PCR policy; later you can restrict) using stdin for passphrase.
-      if echo -n "$PASS" | clevis luks bind -f -k - -d "$DEV" tpm2 '{}' -y; then
+      # Bind using only PCR 7 (Secure Boot/DB state) for stability; adjust if you want stricter policy later.
+      if echo -n "$PASS" | clevis luks bind -f -k - -d "$DEV" tpm2 '{"pcr_ids":"7"}' -y; then
         echo '[tpm-bind] clevis_bind_ok'
       else
         echo '[tpm-bind] clevis_bind_failed'; exit 1
+      fi
+      # Verify token presence
+      if ! clevis luks list -d "$DEV" >/dev/null 2>&1; then
+        echo '[tpm-bind] token_missing_after_bind'; exit 1
       fi
       # Normalize crypttab (no keyfile -> 'none', ensure luks, add discard)
       if grep -q '^luksroot' /etc/crypttab; then
@@ -150,6 +155,8 @@ autoinstall:
       # Regenerate initramfs so clevis hook + token included.
       if update-initramfs -u -k all; then
         echo '[tpm-bind] initramfs_updated'
+        # Sanity check: list clevis artifacts inside new initramfs
+        lsinitramfs /boot/initrd.img-$(uname -r) | grep -q clevis && echo '[tpm-bind] clevis_present_in_initramfs' || echo '[tpm-bind] clevis_not_found_in_initramfs'
       else
         echo '[tpm-bind] initramfs_update_failed'
       fi
