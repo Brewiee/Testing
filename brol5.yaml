@@ -1,6 +1,6 @@
-## Ubuntu 24.04 Autoinstall: LUKS2 full-disk with TPM2 clevis auto-unlock (first boot bind)
-## Flow: Install with temporary passphrase 'Testing' -> first boot systemd service binds clevis tpm2 -> subsequent boots auto-unlock.
-## Harden later: rotate passphrase, specify PCR set, enable Secure Boot + signed UKI.
+## Ubuntu 24.04 Autoinstall: LUKS2 full-disk encryption (manual passphrase at boot)
+## Flow: Install with LUKS passphrase 'Testing' (placeholder) -> system prompts at each boot.
+## Harden later: change passphrase, add TPM-based auto-unlock or keyfile if desired, Secure Boot + UKI.
 
 autoinstall:
   version: 1
@@ -98,37 +98,7 @@ autoinstall:
       Acquire::Languages "none";
       EOF
   late-commands:
-    - curtin in-target --target=/target -- bash -c "echo '*** Late commands start ***' > /root/autoinstall.log"
-    - curtin in-target --target=/target apt-get update || true
-    - |
-      curtin in-target --target=/target -- bash -c '
-        set -euo pipefail
-        DEV=$(grep ^luksroot /etc/crypttab | awk "{gsub(\"UUID=\",\"\",$2);print $2}" | xargs -r -I{} readlink -f /dev/disk/by-uuid/{} 2>/dev/null || true)
-        [ -z "$DEV" ] && DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
-        if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then echo "[keyfile] no_luks_device"; exit 1; fi
-        echo "[keyfile] device=$DEV"
-        if [ ! -f /boot/keyfile ]; then
-          dd if=/dev/urandom of=/boot/keyfile bs=1024 count=4
-          chmod 0400 /boot/keyfile
-          echo "[keyfile] created /boot/keyfile"
-        fi
-        if ! cryptsetup luksDump "$DEV" | grep -q /boot/keyfile; then
-          cryptsetup luksAddKey "$DEV" /boot/keyfile --key-file - <<< "Testing"
-          echo "[keyfile] keyfile added to LUKS"
-        fi
-        UUID=$(blkid -s UUID -o value "$DEV")
-        sed -i "/^luksroot /d" /etc/crypttab
-        echo "luksroot UUID=$UUID /boot/keyfile luks,discard" >> /etc/crypttab
-        echo "[keyfile] crypttab updated"
-        update-initramfs -u -k all
-        echo "[keyfile] initramfs updated"
-      '
-    - curtin in-target --target=/target -- bash -c "sed -i 's/^ *#* *issue_discards *=.*/    issue_discards = 1/' /etc/lvm/lvm.conf || true"
-    - curtin in-target --target=/target systemctl enable fstrim.timer || true
-    - |
-      curtin in-target --target=/target -- bash -c 'cp /etc/fstab /etc/fstab.orig || true; awk '\''$2=="/"{ if($4!~/noatime/){$4=$4",noatime,lazytime"} } {print}'\'' /etc/fstab > /etc/fstab.new && mv /etc/fstab.new /etc/fstab || true'
-    - curtin in-target --target=/target -- bash -c "echo '[late] clevis log:'; tail -n 50 /root/tpm-clevis-bind.log || true"
-    - curtin in-target --target=/target -- bash -c "echo '*** Late commands complete ***' >> /root/autoinstall.log"
+    - curtin in-target --target=/target -- bash -c 'set -euo pipefail; echo "[mdatp] Adding Microsoft repo"; install -d -m 0755 /etc/apt/keyrings; curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg; chmod 0644 /etc/apt/keyrings/microsoft.gpg; echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft-prod.list; apt-get update; echo "[mdatp] Installing package"; DEBIAN_FRONTEND=noninteractive apt-get install -y mdatp; echo '{"tenantId":"9e2777ed-8237-4ab9-9278-2c144d6f6da3"}' > /etc/opt/microsoft/mdatp/managed/mdatp_onboard.json; chmod 0600 /etc/opt/microsoft/mdatp/managed/mdatp_onboard.json || true; systemctl restart mdatp || true; echo "[mdatp] Post-install status:" >> /root/autoinstall.log; mdatp health json 2>/dev/null >> /root/autoinstall.log || true'
   timezone: Europe/Brussels
   user-data:
     disable_root: true
@@ -137,8 +107,8 @@ autoinstall:
     runcmd:
       - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
 
-## Post-install:
-## 1. Reboot twice to confirm unattended unlock.
-## 2. Rotate passphrase (add new, remove 'Testing').
-## 3. Optionally set specific PCRs: modify tpm-clevis-bind.sh clevis JSON.
-## 4. Consider Secure Boot + signed UKI for tamper resistance.
+## Post-install suggestions:
+## - Change the temporary passphrase 'Testing' immediately: cryptsetup luksChangeKey /dev/nvme0n1p3
+## - Consider adding TPM-based auto-unlock later (systemd-cryptenroll --tpm2-device=auto ...).
+## - Optionally enable discard: ensure crypttab entry has 'discard' if needed.
+## - For improved integrity, adopt Secure Boot + unified kernel image.
