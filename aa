@@ -1,56 +1,57 @@
 #cloud-config
 autoinstall:
-   version: 1
-   locale: "en_US.UTF-8"
-   keyboard:
-     layout: be
-     variant: ""
-     toggle: null
-   timezone: "Europe/Brussels"
-   source:
-     id: ubuntu-desktop
-   oem:
-     install: auto          # Replaces invalid 'mode: oem'
-   identity:
-     hostname: ubuntu-desktop
-     username: ubuntu
-     password: '$6$jMIpAD1dGkm6sqfJ$HF6uWZp3lbYMjyI3jWUE1j51R9sqCkX8tjrp3xut2AWs3r2Ou9JGyZu1Xr7D3VF3B4X2gYCfjQatKoxAbDGSu0'
-     realname: ""
-   storage:
-     config:
-       - type: disk
-         id: disk0
-         match:
-           size: largest
-         wipe: superblock-recursive
-         ptable: gpt
-         grub_device: true
-       - type: partition
-         id: disk0-efi
-         device: disk0
-         size: 550M
-         flag: boot
-       - type: partition
-         id: disk0-crypt
-         device: disk0
-         size: -1
-       - type: dm_crypt
-         id: cryptroot
-         volume: disk0-crypt
-         key: random
-         tpm2: true
-         cipher: aes-xts-plain64
-       - type: format
-         id: fmt-efi
-         volume: disk0-efi
-         fstype: fat32
-         label: system-boot
-         mount:
-           path: /boot/efi
-       - type: format
-         id: fmt-root
-         volume: cryptroot
-         fstype: ext4
-         mount:
-           path: /
-   shutdown: reboot
+  version: 1
+  interactive-sections: []   # Added to satisfy validator
+  locale: "en_US.UTF-8"
+  keyboard:
+    layout: be
+    variant: ""
+  timezone: "Europe/Brussels"
+  source:
+    id: ubuntu-desktop
+  oem:
+    install: auto
+  identity:
+    hostname: ubuntu-desktop
+    username: ubuntu
+    password: '$6$jMIpAD1dGkm6sqfJ$HF6uWZp3lbYMjyI3jWUE1j51R9sqCkX8tjrp3xut2AWs3r2Ou9JGyZu1Xr7D3VF3B4X2gYCfjQatKoxAbDGSu0'
+    realname: ""
+  updates: security
+  storage:
+    config:
+      - type: disk
+        id: disk0
+        match:
+          size: largest
+        wipe: superblock-recursive
+        ptable: gpt
+        grub_device: true
+      - type: partition
+        id: disk0-efi
+        device: disk0
+        size: 550M
+        flag: boot
+      - type: partition
+        id: disk0-crypt
+        device: disk0
+        size: -1
+      - type: dm_crypt
+        id: cryptroot
+        volume: disk0-crypt
+        key: random
+        tpm2: true
+        cipher: aes-xts-plain64
+      - type: format
+        id: fmt-efi
+        volume: disk0-efi
+        fstype: fat32
+        label: system-boot
+        mount:
+          path: /boot/efi
+      - type: format
+        id: fmt-root
+        volume: cryptroot
+        fstype: ext4
+        mount:
+          path: /
+  shutdown: reboot
