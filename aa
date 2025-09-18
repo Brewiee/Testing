@@ -1,6 +1,6 @@
 #cloud-config
 autoinstall:
-  # version moved to end (some validators expect it after other keys)
+  version: 1
   locale: fr_BE.UTF-8
   keyboard:
     layout: be
@@ -69,7 +69,6 @@ autoinstall:
         key: random          # Random key stored for TPM binding
         tpm2: true           # Enable TPM auto-unlock (no user passphrase)
         cipher: aes-xts-plain64
-        # pbkdf parameters can be omitted when using TPM + random key
       - type: lvm_volgroup
         id: vgubuntu
         name: ubuntu-vg
@@ -93,4 +92,3 @@ autoinstall:
         fstype: ext4
         mount:
           path: /
-  version: 1
