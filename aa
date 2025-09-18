@@ -1,20 +1,22 @@
 #cloud-config
 autoinstall:
   version: 1
+  early-commands:
+    - echo 'starting autoinstall'
   locale: en_US.UTF-8
   keyboard:
     layout: be
-  timezone: "Europe/Brussels"
+  timezone: Europe/Brussels
   source:
     id: ubuntu-desktop
   storage:
     layout:
-      name: direct
+      name: lvm
   identity:
-    hostname: ubuntu-oem
-    username: oem
-    password: '$6$rounds=4096$saltsalt$hash'  # Temporary, will be reset in OEM
-    realname: "OEM User"
-  oem:
-    install: auto
+    hostname: ubuntu-desktop
+    username: ubuntu
+    password: '$6$jMIpAD1dGkm6sqfJ$HF6uWZp3lbYMjyI3jWUE1j51R9sqCkX8tjrp3xut2AWs3r2Ou9JGyZu1Xr7D3VF3B4X2gYCfjQatKoxAbDGSu0'
+    realname: Ubuntu User
+  late-commands:
+    - echo 'installation complete'
   shutdown: reboot
