@@ -1,6 +1,7 @@
 #cloud-config
 autoinstall:
   version: 1
+  interactive-sections: []          # Prevent validation complaints about interactive sections
   locale: fr_BE.UTF-8
   keyboard:
     layout: be
@@ -15,6 +16,11 @@ autoinstall:
             - amd64
             - i386
           uri: http://be.archive.ubuntu.com/ubuntu/
+      security:
+        - arches:
+            - amd64
+            - i386
+          uri: http://security.ubuntu.com/ubuntu/
     preserve_sources_list: false
   updates: security
   codecs:
