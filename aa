@@ -1,14 +1,20 @@
 #cloud-config
 autoinstall:
   version: 1
-  interactive-sections: []   # Added: satisfies validator expecting this key
-  oem:
-    install: auto
-  locale: en_US.UTF-8         # (unchanged meaning, quotes removed)
+  locale: en_US.UTF-8
   keyboard:
     layout: be
-    variant: ""
   timezone: "Europe/Brussels"
   source:
     id: ubuntu-desktop
+  storage:
+    layout:
+      name: direct
+  identity:
+    hostname: ubuntu-oem
+    username: oem
+    password: '$6$rounds=4096$saltsalt$hash'  # Temporary, will be reset in OEM
+    realname: "OEM User"
+  oem:
+    install: auto
   shutdown: reboot
