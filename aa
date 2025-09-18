@@ -1,6 +1,7 @@
 #cloud-config
 autoinstall:
   version: 1
+  interactive-sections: []
   locale: nl_BE.UTF-8
   keyboard:
     layout: be
@@ -8,7 +9,7 @@ autoinstall:
   identity:
     hostname: ubuntu
     username: ubuntu
-    password: $6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar/
+    password: "$6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar"
   reporting:
     subiquity: { type: print }
   updates: security
