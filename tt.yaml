@@ -1,0 +1,162 @@
+#cloud-config
+# Fresh standalone Ubuntu 24.04 autoinstall
+# Goal: Full disk encryption (LUKS2 -> LVM) + automatic unlock on same hardware via TPM2 token
+# Mechanism: systemd-cryptenroll TPM2 token (no clevis, no external scripts)
+# IMPORTANT: Replace INSTALL_PASSPHRASE before production OR inject a randomized value
+# This file is intentionally self-contained and does not rely on any existing repo scripts.
+
+autoinstall:
+  version: 1
+
+  locale: en_US.UTF-8
+  keyboard:
+    layout: be
+    variant: nodeadkeys
+
+  identity:
+    hostname: tpm-unattended
+    username: operator
+    # Password hash placeholder (change!). Generate with: mkpasswd --method=SHA-512
+    password: "$6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar"
+
+  network:
+    version: 2
+    ethernets:
+      lan:
+        match: { name: "en*" }
+        dhcp4: true
+        dhcp6: false
+        optional: true
+
+  updates: security
+  apt:
+    primary:
+      - arches: [amd64]
+        uri: http://archive.ubuntu.com/ubuntu
+
+  shutdown: reboot
+
+  storage:
+    config:
+      - id: disk0
+        type: disk
+        path: /dev/nvme0n1        # Adjust if different hardware
+        ptable: gpt
+        wipe: superblock-recursive
+      - id: part-esp
+        type: partition
+        device: disk0
+        size: 600M
+        flag: boot
+        grub_device: true
+      - id: fmt-esp
+        type: format
+        volume: part-esp
+        fstype: fat32
+      - id: part-boot
+        type: partition
+        device: disk0
+        size: 1G
+      - id: fmt-boot
+        type: format
+        volume: part-boot
+        fstype: ext4
+      - id: part-crypt
+        type: partition
+        device: disk0
+        size: -1
+      - id: luks-root
+        type: dm_crypt
+        volume: part-crypt
+        dm_name: luksroot
+        # This passphrase enables unattended provisioning; rotate/remove after verifying TPM unlock
+        key: Testing
+      - id: vgroot
+        type: lvm_volgroup
+        name: vgroot
+        devices: [luks-root]
+      - id: lvroot
+        type: lvm_partition
+        name: lvroot
+        volgroup: vgroot
+        size: -1
+      - id: fs-root
+        type: format
+        volume: lvroot
+        fstype: ext4
+        label: ROOTFS
+      - id: mnt-root
+        type: mount
+        device: fs-root
+        path: /
+      - id: mnt-boot
+        type: mount
+        device: fmt-boot
+        path: /boot
+      - id: mnt-esp
+        type: mount
+        device: fmt-esp
+        path: /boot/efi
+
+  ssh:
+    install-server: false
+
+  packages: []
+  snaps: []
+
+  early-commands:
+    - |
+      # Safety: ensure only one internal non-removable, non-USB disk present
+      disks=$(lsblk -ndo NAME,TYPE,RM,TRAN | awk '$2=="disk" && $3==0 && $4!~/usb/{print $1}')
+      c=$(echo "$disks" | wc -w)
+      if [ "$c" -ne 1 ]; then echo "ABORT: expected 1 internal disk, got $c: $disks" >&2; exit 1; fi
+    - |
+      # Optionally inject a randomized install passphrase (uncomment to enable)
+      # rnd=$(tr -dc A-Za-z0-9 </dev/urandom | head -c32)
+      # echo "Random install passphrase: $rnd" > /run/random-luks-pass.txt
+      # sed -i "s/INSTALL_PASSPHRASE/$rnd/" /autoinstall.yaml
+
+  late-commands:
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target apt-get -y install systemd cryptsetup-bin tpm2-tools || true
+    - |
+      # Enroll TPM2 token (no PCR restriction now). Rebind later with --tpm2-pcrs if desired.
+      curtin in-target --target=/target -- bash -c '
+        set -euo pipefail
+        LOG=/root/tpm-enroll.log
+        LUKSDEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+        echo "[enroll] device=$LUKSDEV" > "$LOG"
+        if [ -b "$LUKSDEV" ]; then
+          if systemd-cryptenroll --tpm2-device=auto "$LUKSDEV" >> "$LOG" 2>&1; then
+            echo "[enroll] success" >> "$LOG"
+            cryptsetup luksDump "$LUKSDEV" | awk "/Tokens:/,/^$/" >> "$LOG" || true
+          else
+            echo "[enroll] failed" >> "$LOG"
+          fi
+        else
+          echo "[enroll] luks_device_not_found" >> "$LOG"
+        fi'
+    - |
+      # Normalize crypttab entry for luksroot (ensure discard flag for NVMe performance)
+      curtin in-target --target=/target -- bash -c '
+        if grep -q "^luksroot" /etc/crypttab; then
+          awk '"'"'BEGIN{OFS=" "} /^luksroot/ { if($3==""||$3=="-"||$3=="none") $3="none"; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/discard/) $4=$4",discard"; gsub(/,,+/,",",$4); print; next} {print}'"'"' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab
+        fi'
+    - curtin in-target --target=/target update-initramfs -u -k all || true
+    - curtin in-target --target=/target systemctl enable fstrim.timer || true
+
+  user-data:
+    disable_root: true
+    package_update: false
+    package_upgrade: false
+    runcmd:
+      - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
+
+timezone: Europe/Brussels
+
+# Post-install checklist (operator):
+# 1. Boot: confirm no passphrase prompt (TPM unlock). If prompted, use install passphrase, then inspect /root/tpm-enroll.log.
+# 2. Rotate recovery passphrase: cryptsetup luksChangeKey <LUKS_DEVICE>
+# 3. (Optional) Add PCR policy: systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=0,7 <LUKS_DEVICE>
+# 4. (Optional) Remove original slot after verifying TPM works twice: cryptsetup luksKillSlot <LUKS_DEVICE> <slot#>
+# 5. Securely record recovery secret in vault; remove any transient plaintext copies.
