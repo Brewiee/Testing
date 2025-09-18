@@ -1,0 +1,159 @@
+#cloud-config
+# Minimal TPM auto-unlock focused autoinstall (conceptual simplified form)
+# NOTE: The high-level 'encryption: { enable: true, mode: tpm }' block is NOT a documented
+# official Ubuntu 24.04 autoinstall schema key (current schema relies on explicit storage
+# plus manual TPM token enrollment). This file shows the shape you requested, but you will
+# likely need to fall back to explicit storage + first-boot systemd-cryptenroll.
+# If subiquity adds native TPM mode later, adapt accordingly.
+
+autoinstall:
+  version: 1
+  locale: nl_BE.UTF-8   # Belgian locale
+  keyboard:
+    layout: be
+    variant: period   # Belgian (period) variant
+
+  identity:
+    hostname: ubuntu
+    username: ubuntu
+    # Password hash: replace with your own (mkpasswd --method=SHA-512)
+    password: "$6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar"
+
+  # Explicit full-disk layout: GPT + ESP + /boot + LUKS (luksroot) -> LVM (vgroot) -> lvroot (/) consuming all space.
+  # Swap omitted (size pressure) — add an LV later if needed.
+  storage:
+    config:
+      - id: disk0
+        type: disk
+        path: /dev/nvme0n1   # Adjust for target hardware
+        ptable: gpt
+        wipe: superblock-recursive
+      - id: part-esp
+        type: partition
+        device: disk0
+        size: 600M
+        flag: boot
+        grub_device: true
+      - id: fmt-esp
+        type: format
+        volume: part-esp
+        fstype: fat32
+      - id: part-boot
+        type: partition
+        device: disk0
+        size: 1G
+      - id: fmt-boot
+        type: format
+        volume: part-boot
+        fstype: ext4
+      - id: part-crypt
+        type: partition
+        device: disk0
+        size: -1              # Remainder of disk
+      - id: luks-root
+        type: dm_crypt
+        volume: part-crypt
+        dm_name: luksroot
+        key: Testing          # Replace; initial passphrase (will enroll TPM token later)
+      - id: vgroot
+        type: lvm_volgroup
+        name: vgroot
+        devices: [luks-root]
+      - id: lvroot
+        type: lvm_partition
+        name: lvroot
+        volgroup: vgroot
+        size: -1
+      - id: fs-root
+        type: format
+        volume: lvroot
+        fstype: ext4
+        label: ROOTFS
+      - id: mnt-root
+        type: mount
+        device: fs-root
+        path: /
+      - id: mnt-boot
+        type: mount
+        device: fmt-boot
+        path: /boot
+      - id: mnt-esp
+        type: mount
+        device: fmt-esp
+        path: /boot/efi
+
+  drivers:
+    install: false
+
+  security:
+    secure-boot: true
+
+
+
+  updates: security
+  reporting:
+    subiquity: { type: print }
+
+  # First-boot TPM enrollment approach (script + service). Only install needed packages here.
+  packages:
+    - cryptsetup-bin
+    - tpm2-tools
+  late-commands:
+    - |
+      cat > /target/root/tpm-firstboot-enroll.sh <<'EOF'
+      #!/bin/bash
+      set -euo pipefail
+      LOG=/root/tpm-enroll.log
+      exec >>"$LOG" 2>&1
+      echo "[firstboot] start $(date -u +%FT%TZ)"
+      DEV=""
+      for i in {1..120}; do
+        cand=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+        if [ -n "$cand" ] && [ -b "$cand" ]; then DEV="$cand"; break; fi
+        sleep 2
+      done
+      if [ -z "$DEV" ]; then echo "[firstboot] no_luks_device"; exit 0; fi
+      echo "[firstboot] luks_device=$DEV"
+      if cryptsetup luksDump "$DEV" 2>/dev/null | grep -q 'type: systemd-tpm2'; then echo "[firstboot] token_already_present"; exit 0; fi
+      if systemd-cryptenroll --tpm2-device=auto "$DEV"; then
+        echo "[firstboot] enroll_success"
+        update-initramfs -u -k all || echo "[firstboot] initramfs_warn"
+      else
+        echo "[firstboot] enroll_failed"; exit 0
+      fi
+      echo "[firstboot] end $(date -u +%FT%TZ)"
+      EOF
+      chmod 700 /target/root/tpm-firstboot-enroll.sh
+    - |
+      cat > /target/etc/systemd/system/tpm-firstboot-enroll.service <<'UNIT'
+      [Unit]
+      Description=First boot TPM systemd-cryptenroll
+      After=multi-user.target
+      ConditionPathExists=/root/tpm-firstboot-enroll.sh
+      [Service]
+      Type=oneshot
+      ExecStart=/root/tpm-firstboot-enroll.sh
+      RemainAfterExit=no
+      [Install]
+      WantedBy=multi-user.target
+      UNIT
+    - chroot /target systemctl enable tpm-firstboot-enroll.service || true
+    - |
+      # Ensure discard flag in crypttab for luksroot
+      if grep -q '^luksroot' /target/etc/crypttab; then
+        awk 'BEGIN{OFS=" "} /^luksroot/ { if($3==""||$3=="-"||$3=="none") $3="none"; if($4==""||$4=="-"||$4=="none") $4="luks"; if($4!~/discard/) $4=$4",discard"; gsub(/,,+/,",",$4); print; next} {print}' /target/etc/crypttab > /target/etc/crypttab.new && mv /target/etc/crypttab.new /target/etc/crypttab
+      fi
+    - chroot /target systemctl enable fstrim.timer || true
+
+  user-data:
+    timezone: UTC
+    disable_root: true
+    runcmd:
+      - [ bash, -c, 'echo "Review /root/TPM_ENCRYPTION_NOTE.txt for next steps"' ]
+
+# NEXT STEPS (manual after install if native TPM mode unsupported):
+# 1. Identify LUKS container (e.g., lsblk -f | grep crypto_LUKS)
+# 2. Enroll TPM token: systemd-cryptenroll --tpm2-device=auto /dev/<luksdev>
+# 3. Update initramfs: update-initramfs -u -k all
+# 4. Reboot; confirm unattended unlock.
+# 5. (Optional) PCR bind: systemd-cryptenroll --wipe-slot=tpm2 --tpm2-pcrs=0,7 /dev/<luksdev>
