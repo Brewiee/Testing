@@ -1,73 +1,188 @@
+#cloud-config
+# Ubuntu 24.04 Autoinstall + TPM Phase (Two-Phase Safe Mode)
+# This variant enrolls a TPM2 token for LUKS root on first boot but keeps the original passphrase slot.
+# After verifying unattended unlock works, you may optionally wipe slot 0 (pure TPM) manually.
+
 autoinstall:
   version: 1
   interactive-sections: []
-  locale: nl_BE.UTF-8
-  keyboard: { layout: be, variant: period }
+  locale: en_US.UTF-8
+  keyboard:
+    layout: be
+    variant: nodeadkeys
+
   identity:
-    hostname: ubuntu
-    username: ubuntu
-    password: "$6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar"
+    hostname: workstation-tpm
+    username: pcinstall
+    password: "$6$rounds=4096$9SgMJXq8AVq46PUs$.I/aiO8U.o9pfYOw7CrpoXCduJTWToE9usOASpK9aqUcNYMvEAQcZ1B5OamhbR2FEbQOdsrgVhnEneKwXczSp1"
+
+  network:
+    version: 2
+    ethernets:
+      lan:
+        match:
+          name: "en*"
+        dhcp4: true
+        dhcp6: false
+        optional: true
+
   updates: security
-  reporting: { subiquity: { type: print } }
+  apt:
+    primary:
+      - arches: [amd64]
+        uri: http://archive.ubuntu.com/ubuntu
+
+  shutdown: reboot
+
   storage:
     config:
-      - { id: disk0, type: disk, path: /dev/nvme0n1, ptable: gpt, wipe: superblock-recursive }
-      - { id: part-esp, type: partition, device: disk0, size: 600M, flag: boot, grub_device: true }
-      - { id: fmt-esp, type: format, volume: part-esp, fstype: fat32 }
-      - { id: part-boot, type: partition, device: disk0, size: 1G }
-      - { id: fmt-boot, type: format, volume: part-boot, fstype: ext4 }
-      - { id: part-crypt, type: partition, device: disk0, size: -1 }
-      - { id: luks-root, type: dm_crypt, volume: part-crypt, dm_name: luksroot, key: TempPass123! }
-      - { id: vgroot, type: lvm_volgroup, name: vgroot, devices: [luks-root] }
-      - { id: lvroot, type: lvm_partition, name: lvroot, volgroup: vgroot, size: -1 }
-      - { id: fs-root, type: format, volume: lvroot, fstype: ext4 }
-      - { id: mnt-root, type: mount, device: fs-root, path: / }
-      - { id: mnt-boot, type: mount, device: fmt-boot, path: /boot }
-      - { id: mnt-esp, type: mount, device: fmt-esp, path: /boot/efi }
-  packages: [cryptsetup-bin, tpm2-tools]
-  late-commands:
+      - id: disk0
+        type: disk
+        ptable: gpt
+        path: /dev/nvme0n1
+        wipe: superblock-recursive
+
+      - id: esp
+        type: partition
+        device: disk0
+        size: 600M
+        flag: boot
+        grub_device: true
+        wipe: superblock
+      - id: esp-fmt
+        type: format
+        volume: esp
+        fstype: fat32
+
+      - id: boot
+        type: partition
+        device: disk0
+        size: 1G
+        wipe: superblock
+      - id: boot-fmt
+        type: format
+        volume: boot
+        fstype: ext4
+
+      - id: crypt-pv-part
+        type: partition
+        device: disk0
+        size: -1
+        wipe: superblock
+
+      - id: luks-root
+        type: dm_crypt
+        volume: crypt-pv-part
+        dm_name: luksroot
+        key: Testing
+
+      - id: vgroot
+        type: lvm_volgroup
+        name: vgroot
+        devices: [luks-root]
+
+      - id: lvroot
+        type: lvm_partition
+        name: lvroot
+        volgroup: vgroot
+        size: -1
+
+      - id: root-fs
+        type: format
+        volume: lvroot
+        fstype: ext4
+        label: ROOTFS
+
+      - id: mount-root
+        type: mount
+        device: root-fs
+        path: /
+      - id: mount-boot
+        type: mount
+        device: boot-fmt
+        path: /boot
+      - id: mount-esp
+        type: mount
+        device: esp-fmt
+        path: /boot/efi
+
+  ssh:
+    install-server: false
+    authorized-keys: []
+
+  packages:
+    - cryptsetup-bin
+    - tpm2-tools
+
+  snaps: []
+
+  early-commands:
     - |
-      cat > /target/root/tpm-firstboot.sh <<'EOF'
-      #!/bin/sh
-      set -eu
-      LOG=/root/tpm-pure.log
-      exec >>$LOG 2>&1
-      echo "[tpm-firstboot] start $(date -u +%FT%TZ)"
-      DEV=""
-      for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-        cand=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
-        [ -n "$cand" ] && [ -b "$cand" ] && DEV=$cand && break
+      internal=$(lsblk -ndo NAME,TYPE,RM,TRAN | awk '$2=="disk" && $3==0 && $4!~/usb/{print $1}')
+      cnt=$(echo $internal | wc -w)
+      if [ $cnt -ne 1 ]; then
+        echo "ABORT: expected 1 internal non-usb disk, found $cnt: $internal" >&2
+        exit 1
+      fi
+    - |
+      for i in $(seq 1 30); do
+        if ip link show | grep -q 'state UP'; then echo "net ok"; break; fi
         sleep 2
       done
-      if [ -z "$DEV" ]; then echo "no luks dev"; exit 0; fi
-      echo "luks=$DEV"
-      if cryptsetup luksDump "$DEV" | grep -q 'systemd-tpm2'; then echo "already"; exit 0; fi
-      if systemd-cryptenroll --tpm2-device=auto "$DEV"; then
-        echo "enrolled"
-        for s in $(cryptsetup luksDump "$DEV" | awk '/Keyslot [0-9]+:/ {print $2}' | tr -d ':'); do
-          cryptsetup luksKillSlot "$DEV" "$s" && echo "removed_slot=$s" || echo "remove_fail=$s"
-        done
-        update-initramfs -u -k all || echo "initramfs_warn"
-      else
-        echo "enroll_fail"; exit 0
-      fi
-      echo "[tpm-firstboot] end $(date -u +%FT%TZ)"
-      EOF
-      chmod 700 /target/root/tpm-firstboot.sh
+
+  late-commands:
+    - curtin in-target --target=/target apt-get update || true
+    - curtin in-target --target=/target apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || true
     - |
-      cat > /target/etc/systemd/system/tpm-firstboot.service <<'UNIT'
+      cat <<'EOF' >/target/root/tpm-enroll.sh
+      #!/bin/bash
+      set -euo pipefail
+      LOG=/root/tpm-enroll.log
+      exec >>"$LOG" 2>&1
+      echo "[tpm-enroll] start $(date -u +%FT%TZ)"
+      DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+      if [ -z "$DEV" ]; then echo "[tpm-enroll] no_luks_device"; exit 0; fi
+      echo "[tpm-enroll] device=$DEV"
+      # Enroll TPM token using existing passphrase (slot 0):
+      if echo -n Testing | systemd-cryptenroll --tpm2-device=auto --unlock-key-file=/dev/stdin "$DEV"; then
+        echo "[tpm-enroll] enroll_ok"
+      else
+        echo "[tpm-enroll] enroll_failed"; exit 0
+      fi
+      if grep -q '^luksroot' /etc/crypttab; then
+        awk 'BEGIN{d=0} /^luksroot/ && !d {u=$2;k=$3;o=$4; if(k==""||k=="-"||k=="none") k="none"; if(o=="") o="luks"; if(o!~/tpm2-device=auto/) o=o",tpm2-device=auto"; if(o!~/discard/) o=o",discard"; print "luksroot "u" "k" "o; d=1; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab && echo "[tpm-enroll] crypttab_updated" || echo "[tpm-enroll] crypttab_update_failed"
+      else
+        echo "[tpm-enroll] crypttab_missing"
+      fi
+      update-initramfs -u -k all || echo "[tpm-enroll] initramfs_warn"
+      echo "[tpm-enroll] complete"
+      echo "# After verifying unattended reboot works, you may run:" >> $LOG
+      echo "# cryptsetup luksKillSlot $DEV 0" >> $LOG
+      # PURE MODE (optional; leave commented until tested)
+      # for s in $(cryptsetup luksDump "$DEV" | awk '/Keyslot [0-9]+:/ {print $2}' | tr -d ':'); do
+      #   cryptsetup luksKillSlot "$DEV" "$s" && echo "[tpm-enroll] removed_slot=$s" || echo "[tpm-enroll] remove_fail=$s"
+      # done
+      EOF
+      chmod 700 /target/root/tpm-enroll.sh
+    - |
+      cat <<'EOF' >/target/etc/systemd/system/tpm-enroll.service
       [Unit]
-      Description=Pure TPM unlock enrollment
+      Description=One-time TPM2 enrollment for LUKS root
       After=multi-user.target
-      ConditionPathExists=/root/tpm-firstboot.sh
+      ConditionPathExists=/root/tpm-enroll.sh
       [Service]
       Type=oneshot
-      ExecStart=/root/tpm-firstboot.sh
-      RemainAfterExit=no
+      ExecStart=/root/tpm-enroll.sh
+      RemainAfterExit=yes
       [Install]
       WantedBy=multi-user.target
-      UNIT
-    - chroot /target systemctl enable tpm-firstboot.service || true
+      EOF
+    - chroot /target systemctl enable tpm-enroll.service || true
+
   user-data:
     disable_root: true
-    timezone: UTC
+    timezone: Europe/Brussels
+    package_update: false
+    package_upgrade: false
+
+# End of file
