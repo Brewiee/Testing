@@ -1,7 +1,6 @@
 #cloud-config
 autoinstall:
-  version: 1
-  interactive-sections: []          # Prevent validation complaints about interactive sections
+  # version moved to end (some validators expect it after other keys)
   locale: fr_BE.UTF-8
   keyboard:
     layout: be
@@ -94,3 +93,4 @@ autoinstall:
         fstype: ext4
         mount:
           path: /
+  version: 1
