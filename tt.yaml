@@ -23,7 +23,7 @@ autoinstall:
     version: 2
     ethernets:
       lan:
-        match: { name: "en*" }
+        # Simplified: rely on first Ethernet; removing match to avoid udev rename delays that can cause hangs
         dhcp4: true
         dhcp6: false
         optional: true
@@ -33,6 +33,15 @@ autoinstall:
     primary:
       - arches: [amd64]
         uri: http://archive.ubuntu.com/ubuntu
+
+  # Reduce chances of subiquity hang in network progress reporting
+  reporting:
+    subiquity:
+      type: print
+    curtin:
+      type: print
+    hook:
+      type: print
 
   shutdown: reboot
 
