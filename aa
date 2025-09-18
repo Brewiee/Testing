@@ -1,6 +1,7 @@
 #cloud-config
 autoinstall:
    version: 1
+   interactive-sections: []   # Added to silence 'interactive sections missing'
    mode: oem
    locale: "en_US.UTF-8"
    keyboard:
@@ -10,4 +11,41 @@ autoinstall:
    source:
      id: ubuntu-desktop
    timezone: "Europe/Brussels"
+   storage:
+     config:
+       - type: disk
+         id: disk0
+         match:
+           size: largest
+         wipe: superblock-recursive
+         ptable: gpt
+         grub_device: true
+       - type: partition
+         id: disk0-efi
+         device: disk0
+         size: 550M
+         flag: boot
+       - type: partition
+         id: disk0-crypt
+         device: disk0
+         size: -1
+       - type: dm_crypt
+         id: cryptroot
+         volume: disk0-crypt
+         key: random      # Random key sealed to TPM (no user passphrase)
+         tpm2: true
+         cipher: aes-xts-plain64
+       - type: format
+         id: fmt-efi
+         volume: disk0-efi
+         fstype: fat32
+         label: system-boot
+         mount:
+           path: /boot/efi
+       - type: format
+         id: fmt-root
+         volume: cryptroot
+         fstype: ext4
+         mount:
+           path: /
    shutdown: reboot
