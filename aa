@@ -1,9 +1,10 @@
 #cloud-config
 autoinstall:
   version: 1
+  interactive-sections: []   # Added: satisfies validator expecting this key
   oem:
     install: auto
-  locale: "en_US.UTF-8"
+  locale: en_US.UTF-8         # (unchanged meaning, quotes removed)
   keyboard:
     layout: be
     variant: ""
