@@ -55,7 +55,7 @@ autoinstall:
         type: dm_crypt
         volume: part-crypt
         dm_name: luksroot
-        key: Testing          # Replace; initial passphrase (will enroll TPM token later)
+        key: TemporaryPassphrase123!  # Will be removed after TPM token enrollment (pure TPM mode)
       - id: vgroot
         type: lvm_volgroup
         name: vgroot
@@ -118,6 +118,17 @@ autoinstall:
       if cryptsetup luksDump "$DEV" 2>/dev/null | grep -q 'type: systemd-tpm2'; then echo "[firstboot] token_already_present"; exit 0; fi
       if systemd-cryptenroll --tpm2-device=auto "$DEV"; then
         echo "[firstboot] enroll_success"
+        # Identify passphrase keyslots (type: luks2; passphrase tokens appear as Keyslot lines). Remove them for pure TPM mode.
+        slots=$(cryptsetup luksDump "$DEV" | awk '/Keyslot [0-9]+:/ {print $2}' | tr -d ':')
+        for s in $slots; do
+          echo "[firstboot] removing_passphrase_keyslot=$s"
+          # Attempt removal; if it fails, log and continue.
+          if cryptsetup luksKillSlot "$DEV" "$s"; then
+            echo "[firstboot] removed_keyslot=$s"
+          else
+            echo "[firstboot] warn_failed_remove_keyslot=$s"
+          fi
+        done
         update-initramfs -u -k all || echo "[firstboot] initramfs_warn"
       else
         echo "[firstboot] enroll_failed"; exit 0
