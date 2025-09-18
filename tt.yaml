@@ -129,22 +129,27 @@ autoinstall:
     - curtin in-target --target=/target apt-get update || true
     - curtin in-target --target=/target apt-get -y install systemd cryptsetup-bin tpm2-tools || true
     - |
-      # Enroll TPM2 token (no PCR restriction now). Rebind later with --tpm2-pcrs if desired.
+      # TPM enrollment (single inline loop, no external script)
       curtin in-target --target=/target -- bash -c '
-        set -euo pipefail
+        set -e
         LOG=/root/tpm-enroll.log
-        LUKSDEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
-        echo "[enroll] device=$LUKSDEV" > "$LOG"
-        if [ -b "$LUKSDEV" ]; then
-          if systemd-cryptenroll --tpm2-device=auto "$LUKSDEV" >> "$LOG" 2>&1; then
-            echo "[enroll] success" >> "$LOG"
-            cryptsetup luksDump "$LUKSDEV" | awk "/Tokens:/,/^$/" >> "$LOG" || true
-          else
-            echo "[enroll] failed" >> "$LOG"
-          fi
+        echo "[enroll] start $(date -u +%FT%TZ)" > "$LOG"
+        DEV=""
+        for i in $(seq 1 60); do
+          cand=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
+            if [ -n "$cand" ] && [ -b "$cand" ]; then DEV="$cand"; break; fi
+            sleep 2
+        done
+        if [ -z "$DEV" ]; then echo "[enroll] no_device_found" >> "$LOG"; exit 0; fi
+        echo "[enroll] luks_device=$DEV" >> "$LOG"
+        if cryptsetup luksDump "$DEV" 2>/dev/null | grep -q "type: systemd-tpm2"; then echo "[enroll] token_already_present" >> "$LOG"; exit 0; fi
+        if systemd-cryptenroll --tpm2-device=auto "$DEV" >> "$LOG" 2>&1; then
+          echo "[enroll] success" >> "$LOG"
+          cryptsetup luksDump "$DEV" | awk "/Tokens:/,/^$/" >> "$LOG" 2>/dev/null || true
         else
-          echo "[enroll] luks_device_not_found" >> "$LOG"
-        fi'
+          echo "[enroll] failure" >> "$LOG"
+        fi
+        echo "[enroll] end $(date -u +%FT%TZ)" >> "$LOG"'
     - |
       # Normalize crypttab entry for luksroot (ensure discard flag for NVMe performance)
       curtin in-target --target=/target -- bash -c '
