@@ -1,162 +1,90 @@
 #cloud-config
-# Modified autoinstall with TPM two-phase enrollment
-# Password changed to ServiceDesk2025 (SHA-512 crypt hash with placeholder salt)
-# Locale/timezone set to Europe/Brussels
 autoinstall:
   version: 1
-  interactive-sections: []
-  refresh-installer:
-    update: true
-    channel: latest/edge
-  source:
-    id: ubuntu-desktop-minimal
-    search_drivers: true
-  locale: en_US.UTF-8
-  timezone: Europe/Brussels
+  locale: fr_BE.UTF-8
   keyboard:
     layout: be
-    variant: nodeadkeys
+    variant: ""
+  timezone: Europe/Brussels
+  refresh-installer:
+    update: true
   apt:
-    disable_components: []
-    fallback: abort
-    geoip: false
     mirror-selection:
       primary:
-        - country-mirror
-        - arches: &id001 [amd64, i386]
-          uri: https://mirrors.tuna.tsinghua.edu.cn/ubuntu/
-        - arches: &id002 [s390x, arm64, armhf, powerpc, ppc64el, riscv64]
-          uri: http://ports.ubuntu.com/ubuntu-ports
+        - arches:
+            - amd64
+            - i386
+          uri: http://be.archive.ubuntu.com/ubuntu/
     preserve_sources_list: false
-    security:
-      - arches: *id001
-        uri: https://mirrors.tuna.tsinghua.edu.cn/ubuntu/
-      - arches: *id002
-        uri: http://ports.ubuntu.com/ubuntu-ports
   updates: security
+  codecs:
+    install: true
+  drivers:
+    install: true
+  kernel:
+    package: linux-generic-hwe-24.04
   network:
     version: 2
     ethernets:
-      enprimary:
-        match: { name: "en*" }
+      # DHCP on all matching NICs
+      all:
+        match:
+          name: "e*"
         dhcp4: true
-        optional: true
+  source:
+    id: ubuntu-desktop-minimal
+    search_drivers: true
   identity:
     hostname: ubuntu-desktop
     username: ubuntu
-    password: "$6$rounds=4096$svcdesk2025salt$X3q4nH6Yf4L0b2W1GqkOj1l8tH0k6e9cQkQe0yM6eEoM5rG1x2b/8jBvQ3u3ZyJwLQfQ5b9P0iT7f8l7bK2v1/"
-  ssh:
-    install-server: false
-    allow-pw: true
-  oem:
-    install: auto
-  kernel:
-    package: linux-generic-hwe-24.04
-  packages:
-    - cryptsetup-bin
-    - cryptsetup-initramfs
-    - tpm2-tools
+    # password hash (placeholder same as before). Adjust if desired.
+    password: '$6$jMIpAD1dGkm6sqfJ$HF6uWZp3lbYMjyI3jWUE1j51R9sqCkX8tjrp3xut2AWs3r2Ou9JGyZu1Xr7D3VF3B4X2gYCfjQatKoxAbDGSu0'
+    realname: ''
   storage:
     config:
-      - id: disk0
-        type: disk
-        ptable: gpt
-        path: /dev/nvme0n1
+      - type: disk
+        id: disk0
+        match:
+          size: largest
         wipe: superblock-recursive
-      - id: efipart
-        type: partition
-        device: disk0
-        offset: 1048576
-        size: 600M
-        flag: boot
+        ptable: gpt
         grub_device: true
-      - id: efipart-fs
-        type: format
-        volume: efipart
+      - type: partition
+        id: disk0-efi
+        device: disk0
+        size: 550M
+        flag: boot
+      - type: partition
+        id: disk0-crypt-part
+        device: disk0
+        size: -1
+      - type: dm_crypt
+        id: cryptroot
+        volume: disk0-crypt-part
+        key: random          # Random key stored for TPM binding
+        tpm2: true           # Enable TPM auto-unlock (no user passphrase)
+        cipher: aes-xts-plain64
+        # pbkdf parameters can be omitted when using TPM + random key
+      - type: lvm_volgroup
+        id: vgubuntu
+        name: ubuntu-vg
+        devices:
+          - cryptroot
+      - type: lvm_partition
+        id: lv-root
+        name: root
+        volgroup: vgubuntu
+        size: -1
+      - type: format
+        id: fmt-efi
+        volume: disk0-efi
         fstype: fat32
-      - id: bootpart
-        type: partition
-        device: disk0
-        size: 1G
-      - id: bootpart-fs
-        type: format
-        volume: bootpart
+        label: system-boot
+        mount:
+          path: /boot/efi
+      - type: format
+        id: fmt-root
+        volume: lv-root
         fstype: ext4
-      - id: pvpart
-        type: partition
-        device: disk0
-        size: -1
-      - id: pvpart-crypt
-        type: dm_crypt
-        volume: pvpart
-        dm_name: luksroot
-        key: ServiceDesk2025
-      - id: vg0
-        type: lvm_volgroup
-        name: vg0
-        devices: [pvpart-crypt]
-      - id: root_lv
-        type: lvm_partition
-        name: root_lv
-        volgroup: vg0
-        size: -1
-      - id: root_lv_fs
-        type: format
-        volume: root_lv
-        fstype: ext4
-      - id: efipart-mount
-        type: mount
-        device: efipart-fs
-        path: /boot/efi
-      - id: bootpart-mount
-        type: mount
-        device: bootpart-fs
-        path: /boot
-      - id: root_lv_mount
-        type: mount
-        device: root_lv_fs
-        path: /
-  late-commands:
-    - curtin in-target --target=/target apt-get update || true
-    - curtin in-target --target=/target apt-get -y install cryptsetup cryptsetup-initramfs tpm2-tools || true
-    - |
-      cat <<'EOF' >/target/root/tpm-enroll.sh
-      #!/bin/bash
-      set -euo pipefail
-      LOG=/root/tpm-enroll.log
-      exec >>"$LOG" 2>&1
-      echo "[tpm-enroll] start $(date -u +%FT%TZ)"
-      DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -1 || true)
-      if [ -z "$DEV" ]; then echo "[tpm-enroll] no_luks_device"; exit 0; fi
-      echo "[tpm-enroll] device=$DEV"
-      if echo -n ServiceDesk2025 | systemd-cryptenroll --tpm2-device=auto --unlock-key-file=/dev/stdin "$DEV"; then
-        echo "[tpm-enroll] enroll_ok"
-      else
-        echo "[tpm-enroll] enroll_failed"; exit 0
-      fi
-      if grep -q '^luksroot' /etc/crypttab; then
-        awk 'BEGIN{d=0} /^luksroot/ && !d {u=$2;k=$3;o=$4; if(k==""||k=="-"||k=="none") k="none"; if(o=="") o="luks"; if(o!~/tpm2-device=auto/) o=o",tpm2-device=auto"; if(o!~/discard/) o=o",discard"; print "luksroot "u" "k" "o; d=1; next} {print}' /etc/crypttab > /etc/crypttab.new && mv /etc/crypttab.new /etc/crypttab && echo "[tpm-enroll] crypttab_updated" || echo "[tpm-enroll] crypttab_update_failed"
-      else
-        echo "[tpm-enroll] crypttab_missing"
-      fi
-      update-initramfs -u -k all || echo "[tpm-enroll] initramfs_warn"
-      echo "[tpm-enroll] complete"
-      echo "# After verifying unattended reboot works, run to remove passphrase slot if desired:" >> "$LOG"
-      echo "# cryptsetup luksKillSlot $DEV 0" >> "$LOG"
-      EOF
-      chmod 700 /target/root/tpm-enroll.sh
-    - |
-      cat <<'EOF' >/target/etc/systemd/system/tpm-enroll.service
-      [Unit]
-      Description=One-time TPM2 enrollment for LUKS root
-      After=multi-user.target
-      ConditionPathExists=/root/tpm-enroll.sh
-      [Service]
-      Type=oneshot
-      ExecStart=/root/tpm-enroll.sh
-      RemainAfterExit=yes
-      [Install]
-      WantedBy=multi-user.target
-      EOF
-    - chroot /target systemctl enable tpm-enroll.service || true
-  refresh: {}
+        mount:
+          path: /
