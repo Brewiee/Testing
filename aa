@@ -1,80 +1,30 @@
-#cloud-config
 autoinstall:
   version: 1
   interactive-sections: []
   locale: nl_BE.UTF-8
-  keyboard:
-    layout: be
-    variant: period
+  keyboard: { layout: be, variant: period }
   identity:
     hostname: ubuntu
     username: ubuntu
     password: "$6$rounds=4096$1354872853$qso6scKpTxzig/VxaKDG3jJ6xLX9ZXgRZ8rhq2vgBsKl2Xe6TDTLuHVpZxeCWOqJTpaQwa.kTQ2u20lLpBgar"
-  reporting:
-    subiquity: { type: print }
   updates: security
+  reporting: { subiquity: { type: print } }
   storage:
     config:
-      - id: disk0
-        type: disk
-        path: /dev/nvme0n1
-        ptable: gpt
-        wipe: superblock-recursive
-      - id: part-esp
-        type: partition
-        device: disk0
-        size: 600M
-        flag: boot
-        grub_device: true
-      - id: fmt-esp
-        type: format
-        volume: part-esp
-        fstype: fat32
-      - id: part-boot
-        type: partition
-        device: disk0
-        size: 1G
-      - id: fmt-boot
-        type: format
-        volume: part-boot
-        fstype: ext4
-      - id: part-crypt
-        type: partition
-        device: disk0
-        size: -1
-      - id: luks-root
-        type: dm_crypt
-        volume: part-crypt
-        dm_name: luksroot
-        key: TempPass123!
-      - id: vgroot
-        type: lvm_volgroup
-        name: vgroot
-        devices: [luks-root]
-      - id: lvroot
-        type: lvm_partition
-        name: lvroot
-        volgroup: vgroot
-        size: -1
-      - id: fs-root
-        type: format
-        volume: lvroot
-        fstype: ext4
-      - id: mnt-root
-        type: mount
-        device: fs-root
-        path: /
-      - id: mnt-boot
-        type: mount
-        device: fmt-boot
-        path: /boot
-      - id: mnt-esp
-        type: mount
-        device: fmt-esp
-        path: /boot/efi
-  packages:
-    - cryptsetup-bin
-    - tpm2-tools
+      - { id: disk0, type: disk, path: /dev/nvme0n1, ptable: gpt, wipe: superblock-recursive }
+      - { id: part-esp, type: partition, device: disk0, size: 600M, flag: boot, grub_device: true }
+      - { id: fmt-esp, type: format, volume: part-esp, fstype: fat32 }
+      - { id: part-boot, type: partition, device: disk0, size: 1G }
+      - { id: fmt-boot, type: format, volume: part-boot, fstype: ext4 }
+      - { id: part-crypt, type: partition, device: disk0, size: -1 }
+      - { id: luks-root, type: dm_crypt, volume: part-crypt, dm_name: luksroot, key: TempPass123! }
+      - { id: vgroot, type: lvm_volgroup, name: vgroot, devices: [luks-root] }
+      - { id: lvroot, type: lvm_partition, name: lvroot, volgroup: vgroot, size: -1 }
+      - { id: fs-root, type: format, volume: lvroot, fstype: ext4 }
+      - { id: mnt-root, type: mount, device: fs-root, path: / }
+      - { id: mnt-boot, type: mount, device: fmt-boot, path: /boot }
+      - { id: mnt-esp, type: mount, device: fmt-esp, path: /boot/efi }
+  packages: [cryptsetup-bin, tpm2-tools]
   late-commands:
     - |
       cat > /target/root/tpm-firstboot.sh <<'EOF'
@@ -92,10 +42,8 @@ autoinstall:
       if [ -z "$DEV" ]; then echo "no luks dev"; exit 0; fi
       echo "luks=$DEV"
       if cryptsetup luksDump "$DEV" | grep -q 'systemd-tpm2'; then echo "already"; exit 0; fi
-      # Enroll TPM token using existing passphrase (slot0)
       if systemd-cryptenroll --tpm2-device=auto "$DEV"; then
         echo "enrolled"
-        # Remove all passphrase keyslots (pure TPM). Capture slots first.
         for s in $(cryptsetup luksDump "$DEV" | awk '/Keyslot [0-9]+:/ {print $2}' | tr -d ':'); do
           cryptsetup luksKillSlot "$DEV" "$s" && echo "removed_slot=$s" || echo "remove_fail=$s"
         done
