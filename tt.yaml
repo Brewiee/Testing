@@ -149,10 +149,10 @@ autoinstall:
     disable_root: true
     package_update: false
     package_upgrade: false
+    timezone: Europe/Brussels
     runcmd:
       - [ sh, -c, "echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-users" ]
 
-timezone: Europe/Brussels
 
 # Post-install checklist (operator):
 # 1. Boot: confirm no passphrase prompt (TPM unlock). If prompted, use install passphrase, then inspect /root/tpm-enroll.log.
