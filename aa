@@ -8,6 +8,7 @@
 
 autoinstall:
   version: 1
+  interactive-sections: []
   locale: nl_BE.UTF-8   # Belgian locale
   keyboard:
     layout: be
