@@ -1,94 +1,13 @@
 #cloud-config
 autoinstall:
-  version: 1
-  locale: fr_BE.UTF-8
-  keyboard:
-    layout: be
-    variant: ""
-  timezone: Europe/Brussels
-  refresh-installer:
-    update: true
-  apt:
-    mirror-selection:
-      primary:
-        - arches:
-            - amd64
-            - i386
-          uri: http://be.archive.ubuntu.com/ubuntu/
-      security:
-        - arches:
-            - amd64
-            - i386
-          uri: http://security.ubuntu.com/ubuntu/
-    preserve_sources_list: false
-  updates: security
-  codecs:
-    install: true
-  drivers:
-    install: true
-  kernel:
-    package: linux-generic-hwe-24.04
-  network:
-    version: 2
-    ethernets:
-      # DHCP on all matching NICs
-      all:
-        match:
-          name: "e*"
-        dhcp4: true
-  source:
-    id: ubuntu-desktop-minimal
-    search_drivers: true
-  identity:
-    hostname: ubuntu-desktop
-    username: ubuntu
-    # password hash (placeholder same as before). Adjust if desired.
-    password: '$6$jMIpAD1dGkm6sqfJ$HF6uWZp3lbYMjyI3jWUE1j51R9sqCkX8tjrp3xut2AWs3r2Ou9JGyZu1Xr7D3VF3B4X2gYCfjQatKoxAbDGSu0'
-    realname: ''
-  storage:
-    config:
-      - type: disk
-        id: disk0
-        match:
-          size: largest
-        wipe: superblock-recursive
-        ptable: gpt
-        grub_device: true
-      - type: partition
-        id: disk0-efi
-        device: disk0
-        size: 550M
-        flag: boot
-      - type: partition
-        id: disk0-crypt-part
-        device: disk0
-        size: -1
-      - type: dm_crypt
-        id: cryptroot
-        volume: disk0-crypt-part
-        key: random          # Random key stored for TPM binding
-        tpm2: true           # Enable TPM auto-unlock (no user passphrase)
-        cipher: aes-xts-plain64
-      - type: lvm_volgroup
-        id: vgubuntu
-        name: ubuntu-vg
-        devices:
-          - cryptroot
-      - type: lvm_partition
-        id: lv-root
-        name: root
-        volgroup: vgubuntu
-        size: -1
-      - type: format
-        id: fmt-efi
-        volume: disk0-efi
-        fstype: fat32
-        label: system-boot
-        mount:
-          path: /boot/efi
-      - type: format
-        id: fmt-root
-        volume: lv-root
-        fstype: ext4
-        mount:
-          path: /
+   version: 1
+   mode: oem
+   locale: "en_US.UTF-8"
+   keyboard:
+     layout: be
+     variant: ""
+     toggle: null
+   source:
+     id: ubuntu-desktop
+   timezone: "Europe/Brussels"
+   shutdown: reboot
