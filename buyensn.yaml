@@ -1,0 +1,51 @@
+#cloud-config
+autoinstall:
+  version: 1
+  interactive-sections: []
+
+  # Identity (user, host, password)
+  identity:
+    hostname: P210252.vito.local
+    username: user
+    # Use a proper SHA-512 hashed password; you can generate this using e.g. `mkpasswd -m sha-512`
+    password: "$6$QF7xEkwxdbvES7kl$asKQoQu/DjRgHn901E/ykCiRTP/Fm3WEx0YBWuatJaDGjc0uxS.aNn0w.em8mdB58wOy3eP8hTamNduJL9OKx1"
+
+  # SSH configuration
+  ssh:
+    install-server: false
+    allow-pw: false
+    # optionally you can add `authorized-keys` here if you want key-based auth
+
+  # Locale, keyboard, time zone
+  locale: "en_US.UTF-8"
+  keyboard:
+    layout: us
+    variant: ""
+  timezone: "Europe/Brussels"
+
+  # Network: simplest is DHCP
+  network:
+    version: 2
+    ethernets:
+      eth0:
+        match:
+          name: "*"
+        dhcp4: true
+        dhcp6: false
+
+  # Storage layout
+  storage:
+    layout:
+      name: direct   # or "lvm" or "zfs" depending on needs
+    # You can also define more detailed partitions/config under storage.config if needed
+
+  # Updates policy
+  updates: security   # options: security, all, none
+
+  # Commands to run late in the install (in the installed target system)
+  late-commands:
+    - curtin in-target -- apt update
+    - curtin in-target -- apt upgrade -y
+
+  # What to do on finish
+  shutdown: reboot
