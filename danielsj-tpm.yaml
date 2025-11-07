@@ -3,6 +3,7 @@ autoinstall:
   version: 1
   interactive-sections: []
 
+  # Identity (user, host, password)
   identity:
     hostname: P250253.vito.local
     username: user
@@ -27,10 +28,45 @@ autoinstall:
         dhcp4: true
         dhcp6: false
 
+  # --- Storage configuration with TPM-backed encryption ---
   storage:
-    layout:
-      name: hybrid
-      encrypted: yes
+    config:
+      - id: disk0
+        type: disk
+        match:
+          size: largest
+        ptable: gpt
+        wipe: superblock-recursive
+      - id: bios
+        type: partition
+        device: disk0
+        size: 1M
+        flag: bios_grub
+      - id: efi
+        type: partition
+        device: disk0
+        size: 512M
+        flag: boot
+        filesystem: fat32
+        mount: /boot/efi
+      - id: rootpart
+        type: partition
+        device: disk0
+        size: -1
+      - id: luksroot
+        type: luks
+        device: rootpart
+        wipe: superblock
+        preserve: false
+        # TPM2 integration: this tells curtin to set up a LUKS volume
+        # whose key is sealed with the TPM rather than only a passphrase.
+        tpm2: true
+        label: cryptroot
+      - id: rootfs
+        type: format
+        fstype: ext4
+        volume: luksroot
+        mount: /
 
   apt:
     sources:
@@ -40,25 +76,13 @@ autoinstall:
         suites: [noble]
         components: [main, restricted, universe]
 
-  # --- TPM setup before partitioning/encryption ---
-  early-commands:
-    # Ensure TPM tools are available in the installer
-    - apt-get update
-    - apt-get install -y tpm2-tools
-    # Check and prepare TPM
-    - bash -c 'tpm2_getcap properties-fixed || echo "TPM not found"'
-    - bash -c 'tpm2_clear || true'
-    - bash -c 'tpm2_getrandom 8 || true'
-
+  # --- Ensure TPM tools and Clevis are installed, and bind the LUKS slot to TPM2 ---
   late-commands:
-    # Basic updates
     - curtin in-target -- apt update
-    - curtin in-target -- apt upgrade -y
-    # Install TPM utilities for runtime usage
     - curtin in-target -- apt install -y tpm2-tools clevis clevis-luks clevis-initramfs
-    # Bind the LUKS container to the TPM for automatic unlock
-    - curtin in-target -- bash -c 'cryptdev=$(lsblk -no NAME,TYPE | grep crypt | awk "{print \$1}" | head -n1); if [ -n "$cryptdev" ]; then systemd-cryptenroll --tpm2-device=auto /dev/$cryptdev || true; fi'
-    # Update initramfs so TPM unlock logic is active at boot
+    # Bind the encrypted root volume to the TPM (slot 1)
+    - curtin in-target -- bash -c 'cryptdev=$(lsblk -no UUID /dev/mapper/cryptroot); echo "Binding LUKS volume $cryptdev to TPM2..."; clevis luks bind -d /dev/disk/by-uuid/$cryptdev tpm2 "{}"'
     - curtin in-target -- update-initramfs -u
+    - curtin in-target -- apt upgrade -y
 
   shutdown: reboot
