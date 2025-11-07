@@ -29,57 +29,56 @@ autoinstall:
         dhcp6: false
 
   # --- Storage configuration with TPM-backed encryption ---
- storage:
-  config:
-    - id: disk0
-      type: disk
-      match:
-        size: largest
-      ptable: gpt
-      wipe: superblock-recursive
+  storage:
+    config:
+      - id: disk0
+        type: disk
+        match:
+          size: largest
+        ptable: gpt
+        wipe: superblock-recursive
 
-    # BIOS boot partition (for legacy BIOS systems)
-    - id: bios
-      type: partition
-      device: disk0
-      size: 1M
-      flag: bios_grub
+      # BIOS boot partition (for legacy BIOS systems)
+      - id: bios
+        type: partition
+        device: disk0
+        size: 1M
+        flag: bios_grub
 
-    # EFI System Partition
-    - id: efi
-      type: partition
-      device: disk0
-      size: 512M
-      flag: boot
+      # EFI System Partition
+      - id: efi
+        type: partition
+        device: disk0
+        size: 512M
+        flag: boot
 
-    - id: efi-format
-      type: format
-      volume: efi
-      fstype: vfat
-      mount: /boot/efi
+      - id: efi-format
+        type: format
+        volume: efi
+        fstype: vfat
+        mount: /boot/efi
 
-    # Root partition (will be encrypted)
-    - id: rootpart
-      type: partition
-      device: disk0
-      size: -1
+      # Root partition (will be encrypted)
+      - id: rootpart
+        type: partition
+        device: disk0
+        size: -1
 
-    # LUKS encryption with TPM2
-    - id: luksroot
-      type: luks
-      device: rootpart
-      wipe: superblock
-      preserve: false
-      tpm2: true
-      label: cryptroot
+      # LUKS encryption with TPM2
+      - id: luksroot
+        type: luks
+        device: rootpart
+        wipe: superblock
+        preserve: false
+        tpm2: true
+        label: cryptroot
 
-    # Root filesystem on top of LUKS
-    - id: rootfs
-      type: format
-      fstype: ext4
-      volume: luksroot
-      mount: /
-
+      # Root filesystem on top of LUKS
+      - id: rootfs
+        type: format
+        fstype: ext4
+        volume: luksroot
+        mount: /
 
   apt:
     sources:
