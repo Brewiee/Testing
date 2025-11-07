@@ -3,27 +3,21 @@ autoinstall:
   version: 1
   interactive-sections: []
 
-  # Identity (user, host, password)
   identity:
     hostname: P250253.vito.local
     username: user
-    # Use a proper SHA-512 hashed password; you can generate this using e.g. `mkpasswd -m sha-512`
     password: "$6$rounds=656000$ADfxhvejGafxsnZv$LMYXLUL.wmjtPmgv.ax1BYQv78Vv1BJQCE9igdCRXMQlM5pBuQyCpskxOTHXUeDr8oChjxLankzZ23wOxfNuR0"
 
-  # SSH configuration
   ssh:
     install-server: false
     allow-pw: false
-    # optionally you can add `authorized-keys` here if you want key-based auth
 
-  # Locale, keyboard, time zone
   locale: "en_US.UTF-8"
   keyboard:
     layout: be
     variant: ""
   timezone: "Europe/Brussels"
 
-  # Network: simplest is DHCP
   network:
     version: 2
     ethernets:
@@ -33,13 +27,11 @@ autoinstall:
         dhcp4: true
         dhcp6: false
 
-  # Storage layout
   storage:
     layout:
       name: hybrid
       encrypted: yes
 
-  # Updates policy
   apt:
     sources:
       main:
@@ -48,10 +40,22 @@ autoinstall:
         suites: [noble]
         components: [main, restricted, universe]
 
-  # Commands to run late in the install (in the installed target system)
+  # --- TPM setup before partitioning/encryption ---
+  early-commands:
+    # Make sure TPM tools are available inside the installer environment
+    - apt-get update
+    - apt-get install -y tpm2-tools
+    # Check TPM presence
+    - bash -c 'tpm2_getcap properties-fixed || echo "TPM not found"'
+    # Clear and take ownership (optional but ensures a clean TPM)
+    - bash -c 'tpm2_clear || true'
+    - bash -c 'tpm2_getrandom 8 || true'
+
   late-commands:
     - curtin in-target -- apt update
     - curtin in-target -- apt upgrade -y
+    # Optional: install TPM and clevis tools for runtime binding
+    - curtin in-target -- apt install -y tpm2-tools clevis clevis-luks clevis-initramfs
+    - curtin in-target -- update-initramfs -u
 
-  # What to do on finish
   shutdown: reboot
