@@ -42,20 +42,23 @@ autoinstall:
 
   # --- TPM setup before partitioning/encryption ---
   early-commands:
-    # Make sure TPM tools are available inside the installer environment
+    # Ensure TPM tools are available in the installer
     - apt-get update
     - apt-get install -y tpm2-tools
-    # Check TPM presence
+    # Check and prepare TPM
     - bash -c 'tpm2_getcap properties-fixed || echo "TPM not found"'
-    # Clear and take ownership (optional but ensures a clean TPM)
     - bash -c 'tpm2_clear || true'
     - bash -c 'tpm2_getrandom 8 || true'
 
   late-commands:
+    # Basic updates
     - curtin in-target -- apt update
     - curtin in-target -- apt upgrade -y
-    # Optional: install TPM and clevis tools for runtime binding
+    # Install TPM utilities for runtime usage
     - curtin in-target -- apt install -y tpm2-tools clevis clevis-luks clevis-initramfs
+    # Bind the LUKS container to the TPM for automatic unlock
+    - curtin in-target -- bash -c 'cryptdev=$(lsblk -no NAME,TYPE | grep crypt | awk "{print \$1}" | head -n1); if [ -n "$cryptdev" ]; then systemd-cryptenroll --tpm2-device=auto /dev/$cryptdev || true; fi'
+    # Update initramfs so TPM unlock logic is active at boot
     - curtin in-target -- update-initramfs -u
 
   shutdown: reboot
