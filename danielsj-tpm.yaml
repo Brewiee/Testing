@@ -56,7 +56,11 @@ autoinstall:
         type: format
         volume: efi
         fstype: vfat
-        mount: /boot/efi
+
+      - id: efi-mount
+        type: mount
+        device: efi-format
+        path: /boot/efi
 
       # Root partition (will be encrypted)
       - id: rootpart
@@ -66,19 +70,21 @@ autoinstall:
 
       # LUKS encryption with TPM2
       - id: luksroot
-        type: luks
-        device: rootpart
-        wipe: superblock
-        preserve: false
-        tpm2: true
-        label: cryptroot
+        type: dm_crypt
+        volume: rootpart
+        key: ""
+        dm_name: cryptroot
 
       # Root filesystem on top of LUKS
       - id: rootfs
         type: format
         fstype: ext4
         volume: luksroot
-        mount: /
+
+      - id: rootfs-mount
+        type: mount
+        device: rootfs
+        path: /
 
   apt:
     sources:
@@ -91,10 +97,10 @@ autoinstall:
   # --- Ensure TPM tools and Clevis are installed, and bind the LUKS slot to TPM2 ---
   late-commands:
     - curtin in-target -- apt update
-    - curtin in-target -- apt install -y tpm2-tools clevis clevis-luks clevis-initramfs
+    - curtin in-target -- apt install -y tpm2-tools clevis clevis-luks clevis-initramfs cryptsetup
     # Bind the encrypted root volume to the TPM (slot 1)
-    - curtin in-target -- bash -c 'cryptdev=$(lsblk -no UUID /dev/mapper/cryptroot); echo "Binding LUKS volume $cryptdev to TPM2..."; clevis luks bind -d /dev/disk/by-uuid/$cryptdev tpm2 "{}"'
-    - curtin in-target -- update-initramfs -u
+    - curtin in-target -- bash -c 'rootdev=$(blkid -t TYPE=crypto_LUKS -o device | head -n1); if [ -n "$rootdev" ]; then echo "Binding LUKS volume $rootdev to TPM2..."; echo -n "" | clevis luks bind -d "$rootdev" tpm2 "{}"; fi'
+    - curtin in-target -- update-initramfs -u -k all
     - curtin in-target -- apt upgrade -y
 
   shutdown: reboot
