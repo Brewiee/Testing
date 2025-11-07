@@ -3,7 +3,6 @@ autoinstall:
   version: 1
   interactive-sections: []
 
-  # Identity (user, host, password)
   identity:
     hostname: P250253.vito.local
     username: user
@@ -13,11 +12,13 @@ autoinstall:
     install-server: false
     allow-pw: false
 
-  locale: "en_US.UTF-8"
+  locale: en_US.UTF-8
+  
   keyboard:
     layout: be
     variant: ""
-  timezone: "Europe/Brussels"
+    
+  timezone: Europe/Brussels
 
   network:
     version: 2
@@ -28,79 +29,28 @@ autoinstall:
         dhcp4: true
         dhcp6: false
 
-  # --- Storage configuration with TPM-backed encryption ---
   storage:
-    config:
-      - id: disk0
-        type: disk
-        match:
-          size: largest
-        ptable: gpt
-        wipe: superblock-recursive
+    layout:
+      name: lvm
+      match:
+        size: largest
+      password: ""
+    
+  packages:
+    - tpm2-tools
+    - clevis
+    - clevis-luks
+    - clevis-initramfs
+    - cryptsetup
 
-      # BIOS boot partition (for legacy BIOS systems)
-      - id: bios
-        type: partition
-        device: disk0
-        size: 1M
-        flag: bios_grub
-
-      # EFI System Partition
-      - id: efi
-        type: partition
-        device: disk0
-        size: 512M
-        flag: boot
-
-      - id: efi-format
-        type: format
-        volume: efi
-        fstype: vfat
-
-      - id: efi-mount
-        type: mount
-        device: efi-format
-        path: /boot/efi
-
-      # Root partition (will be encrypted)
-      - id: rootpart
-        type: partition
-        device: disk0
-        size: -1
-
-      # LUKS encryption with TPM2
-      - id: luksroot
-        type: dm_crypt
-        volume: rootpart
-        key: ""
-        dm_name: cryptroot
-
-      # Root filesystem on top of LUKS
-      - id: rootfs
-        type: format
-        fstype: ext4
-        volume: luksroot
-
-      - id: rootfs-mount
-        type: mount
-        device: rootfs
-        path: /
-
-  apt:
-    sources:
-      main:
-        arch: [amd64, i386]
-        uri: http://archive.ubuntu.com/ubuntu
-        suites: [noble]
-        components: [main, restricted, universe]
-
-  # --- Ensure TPM tools and Clevis are installed, and bind the LUKS slot to TPM2 ---
   late-commands:
     - curtin in-target -- apt update
     - curtin in-target -- apt install -y tpm2-tools clevis clevis-luks clevis-initramfs cryptsetup
-    # Bind the encrypted root volume to the TPM (slot 1)
-    - curtin in-target -- bash -c 'rootdev=$(blkid -t TYPE=crypto_LUKS -o device | head -n1); if [ -n "$rootdev" ]; then echo "Binding LUKS volume $rootdev to TPM2..."; echo -n "" | clevis luks bind -d "$rootdev" tpm2 "{}"; fi'
+    - curtin in-target -- bash -c 'rootdev=$(lsblk -no PKNAME /dev/mapper/ubuntu--vg-ubuntu--lv 2>/dev/null | head -n1); if [ -n "$rootdev" ]; then luksdev=$(lsblk -no NAME,TYPE | grep crypt | awk "{print \$1}" | head -n1); if [ -n "$luksdev" ]; then echo "" | clevis luks bind -d /dev/$luksdev tpm2 "{}"; fi; fi'
     - curtin in-target -- update-initramfs -u -k all
     - curtin in-target -- apt upgrade -y
 
+  user-data:
+    disable_root: true
+    
   shutdown: reboot
