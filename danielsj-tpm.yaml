@@ -3,23 +3,27 @@ autoinstall:
   version: 1
   interactive-sections: []
 
+  # Identity (user, host, password)
   identity:
     hostname: P250253.vito.local
     username: user
-    password: "$6$rounds=656000$ADfxhvejGafxsnZv$LMYXLUL.wmjtPmgv.ax1BYQv78Vv1BJQCE9igdCRXMQlM5pBuQyCpskxOTHXUeDr8oChjxLankzZ23wOxfNuR0"
+    # SHA-512 hashed password
+    password: "$6$QF7xEkwxdbvES7kl$asKQoQu/DjRgHn901E/ykCiRTP/Fm3WEx0YBWuatJaDGjc0uxS.aNn0w.em8mdB58wOy3eP8hTamNduJL9OKx1"
 
+  # SSH configuration
   ssh:
     install-server: false
     allow-pw: false
+    # optionally you can add `authorized-keys` here if you want key-based auth
 
-  locale: en_US.UTF-8
-  
+  # Locale, keyboard, time zone
+  locale: "en_US.UTF-8"
   keyboard:
     layout: be
     variant: ""
-    
-  timezone: Europe/Brussels
+  timezone: "Europe/Brussels"
 
+  # Network: simplest is DHCP
   network:
     version: 2
     ethernets:
@@ -29,28 +33,25 @@ autoinstall:
         dhcp4: true
         dhcp6: false
 
+  # Storage layout
   storage:
     layout:
-      name: lvm
-      match:
-        size: largest
-      password: ""
-    
-  packages:
-    - tpm2-tools
-    - clevis
-    - clevis-luks
-    - clevis-initramfs
-    - cryptsetup
+      name: hybrid
+      encrypted: yes
 
+  # Updates policy
+  apt:
+    sources:
+      main:
+        arch: [amd64, i386]
+        uri: http://archive.ubuntu.com/ubuntu
+        suites: [noble]
+        components: [main, restricted, universe]
+
+  # Commands to run late in the install (in the installed target system)
   late-commands:
     - curtin in-target -- apt update
-    - curtin in-target -- apt install -y tpm2-tools clevis clevis-luks clevis-initramfs cryptsetup
-    - curtin in-target -- bash -c 'rootdev=$(lsblk -no PKNAME /dev/mapper/ubuntu--vg-ubuntu--lv 2>/dev/null | head -n1); if [ -n "$rootdev" ]; then luksdev=$(lsblk -no NAME,TYPE | grep crypt | awk "{print \$1}" | head -n1); if [ -n "$luksdev" ]; then echo "" | clevis luks bind -d /dev/$luksdev tpm2 "{}"; fi; fi'
-    - curtin in-target -- update-initramfs -u -k all
     - curtin in-target -- apt upgrade -y
 
-  user-data:
-    disable_root: true
-    
+  # What to do on finish
   shutdown: reboot
